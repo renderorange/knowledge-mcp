@@ -1,0 +1,45 @@
+BINARY := knowledge-mcp
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+GOFLAGS := -ldflags "-X main.version=$(VERSION)"
+PLATFORMS := linux/amd64 darwin/amd64 darwin/arm64 windows/amd64
+
+.PHONY: all build build-all test clean install lint fmt tidy
+
+all: fmt tidy lint test build
+
+build:
+	go build $(GOFLAGS) -o $(BINARY) .
+
+build-all:
+	@mkdir -p dist
+	@for platform in $(PLATFORMS); do \
+		os=$${platform%/*}; \
+		arch=$${platform#*/}; \
+		output=$(BINARY)-$$os-$$arch; \
+		if [ "$$os" = "windows" ]; then output=$$output.exe; fi; \
+		echo "Building $$output..."; \
+		GOOS=$$os GOARCH=$$arch go build $(GOFLAGS) -o dist/$$output . || exit 1; \
+	done
+
+test:
+	go test ./...
+
+clean:
+	rm -f $(BINARY)
+	rm -rf dist/
+
+install:
+	go install $(GOFLAGS) .
+
+lint:
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+		golangci-lint run; \
+	else \
+		go vet ./...; \
+	fi
+
+fmt:
+	gofmt -s -w .
+
+tidy:
+	go mod tidy
