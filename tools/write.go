@@ -81,12 +81,14 @@ func WriteHandler(projectPathFn func(project string) string, idx *search.Index) 
 		id := knowledge.NextID(kf.Entries, knowledge.CategoryPrefix(category))
 
 		entry := knowledge.Entry{
-			ID:         id,
-			Summary:    summary,
-			Detail:     detail,
-			Confidence: confidence,
-			Source:     source,
-			Date:       knowledge.Today(),
+			ID:           id,
+			Summary:      summary,
+			Detail:       detail,
+			Confidence:   confidence,
+			Source:       source,
+			Date:         knowledge.Today(),
+			ExpiresAt:    knowledge.ExpiryDate(),
+			LastVerified: knowledge.Today(),
 		}
 
 		kf.Entries = append(kf.Entries, entry)
