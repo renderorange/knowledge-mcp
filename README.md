@@ -6,26 +6,43 @@ An MCP server for persistent agent knowledge. Agents query and write structured 
 
 ```bash
 go build -o knowledge-mcp .
-./knowledge-mcp --project /path/to/your/project
 ```
+
+Then configure your MCP client (see [Agent Configuration](#agent-configuration) below). The client manages the server process — you don't need to run it manually.
 
 ## Modes
 
 ### Single-project
 
-```bash
-./knowledge-mcp --project /path/to/project
-```
+Targets one project root. Indexes `.agents/` in that project.
 
-Indexes `.agents/` in the given project.
+```jsonc
+// opencode.jsonc
+{
+  "mcp": {
+    "knowledge-mcp": {
+      "command": ["knowledge-mcp", "--project", "/path/to/project"],
+      "type": "local"
+    }
+  }
+}
+```
 
 ### Org-wide
 
-```bash
-./knowledge-mcp --root /path/to/org
-```
-
 Discovers all projects under the org root. Indexes per-project `.agents/` and org-level `.agents/knowledge/`.
+
+```jsonc
+// opencode.jsonc
+{
+  "mcp": {
+    "knowledge-mcp": {
+      "command": ["knowledge-mcp", "--root", "/path/to/org"],
+      "type": "local"
+    }
+  }
+}
+```
 
 ## MCP Tools
 
