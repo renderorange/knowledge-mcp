@@ -260,6 +260,21 @@ func TestQueryHandler(t *testing.T) {
 		}
 	})
 
+	t.Run("invalid stale", func(t *testing.T) {
+		req := mcp.CallToolRequest{}
+		req.Params.Arguments = map[string]interface{}{
+			"project": "test",
+			"stale":   "maybe",
+		}
+		result, _ := handler(context.Background(), req)
+		if result == nil {
+			t.Fatal("handler returned nil")
+		}
+		if !result.IsError {
+			t.Fatal("expected error for invalid stale value")
+		}
+	})
+
 	t.Run("full text query", func(t *testing.T) {
 		req := mcp.CallToolRequest{}
 		req.Params.Arguments = map[string]interface{}{

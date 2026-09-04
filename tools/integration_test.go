@@ -11,6 +11,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/renderorange/agents_knowledge/knowledge"
 	"github.com/renderorange/agents_knowledge/search"
+	"gopkg.in/yaml.v3"
 )
 
 func TestEndToEnd(t *testing.T) {
@@ -280,6 +281,103 @@ func TestOrgWideMode(t *testing.T) {
 	listContentB := extractTextContent(t, listResultB)
 	if strings.Contains(listContentB, "conv-001") {
 		t.Error("projectB should not have projectA's entries")
+	}
+}
+
+func TestFullWorkflow(t *testing.T) {
+	orgRoot := t.TempDir()
+
+	// Create org with two projects
+	for _, proj := range []string{"app", "lib"} {
+		agentsDir := filepath.Join(orgRoot, proj, ".agents")
+		os.MkdirAll(agentsDir, 0755)
+		meta := knowledge.Meta{
+			Project:          proj,
+			KnowledgeVersion: 1,
+			Created:          "2026-01-01",
+			LastUpdated:      "2026-01-01",
+			Categories:       knowledge.ValidCategories(),
+		}
+		data, _ := yaml.Marshal(meta)
+		os.WriteFile(filepath.Join(agentsDir, "_meta.yaml"), data, 0644)
+	}
+
+	projectPathFn := func(project string) string {
+		path := filepath.Join(orgRoot, project)
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			return path
+		}
+		return ""
+	}
+
+	idx, err := search.NewIndex(filepath.Join(orgRoot, ".agents", ".index"))
+	if err != nil {
+		t.Fatalf("NewIndex() error: %v", err)
+	}
+	defer idx.Close()
+
+	// 1. List projects
+	listHandler := ListProjectsHandler(orgRoot, projectPathFn)
+	listResult, err := listHandler(context.Background(), mcp.CallToolRequest{})
+	if err != nil {
+		t.Fatalf("list_projects error: %v", err)
+	}
+	listText := extractTextContent(t, listResult)
+	if !strings.Contains(listText, "- app") || !strings.Contains(listText, "- lib") {
+		t.Fatalf("list_projects failed: %s", listText)
+	}
+
+	// 2. Write knowledge
+	writeHandler := WriteHandler(projectPathFn, idx)
+	writeReq := mcp.CallToolRequest{}
+	writeReq.Params.Arguments = map[string]interface{}{
+		"project":    "app",
+		"category":   "conventions",
+		"summary":    "Use tabs",
+		"detail":     "All files use tabs for indentation",
+		"confidence": "high",
+		"source":     "manual review",
+	}
+	writeResult, err := writeHandler(context.Background(), writeReq)
+	if err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+	writeText := extractTextContent(t, writeResult)
+	if !strings.Contains(writeText, "wrote conv-001") {
+		t.Fatalf("write failed: %s", writeText)
+	}
+
+	// 3. Verify entry
+	verifyHandler := VerifyHandler(projectPathFn)
+	verifyReq := mcp.CallToolRequest{}
+	verifyReq.Params.Arguments = map[string]interface{}{
+		"project":  "app",
+		"category": "conventions",
+		"id":       "conv-001",
+	}
+	verifyResult, err := verifyHandler(context.Background(), verifyReq)
+	if err != nil {
+		t.Fatalf("verify error: %v", err)
+	}
+	verifyText := extractTextContent(t, verifyResult)
+	if !strings.Contains(verifyText, "verified conv-001") {
+		t.Fatalf("verify failed: %s", verifyText)
+	}
+
+	// 4. Query with staleness filter (stale=false should return the fresh entry)
+	queryHandler := QueryHandler(projectPathFn, idx)
+	queryReq := mcp.CallToolRequest{}
+	queryReq.Params.Arguments = map[string]interface{}{
+		"project": "app",
+		"stale":   "false",
+	}
+	queryResult, err := queryHandler(context.Background(), queryReq)
+	if err != nil {
+		t.Fatalf("query error: %v", err)
+	}
+	queryText := extractTextContent(t, queryResult)
+	if !strings.Contains(queryText, "conv-001") {
+		t.Fatalf("query with stale=false failed: %s", queryText)
 	}
 }
 

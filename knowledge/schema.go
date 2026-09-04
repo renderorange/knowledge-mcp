@@ -1,6 +1,10 @@
 package knowledge
 
-import "time"
+import (
+	"time"
+)
+
+const stalenessMonths = 6
 
 // Meta represents the _meta.yaml file header.
 type Meta struct {
@@ -21,6 +25,29 @@ type Entry struct {
 	Date         string   `yaml:"date"`
 	Supersedes   string   `yaml:"supersedes,omitempty"`
 	Alternatives []string `yaml:"alternatives,omitempty"`
+	ExpiresAt    string   `yaml:"expires_at,omitempty"`
+	LastVerified string   `yaml:"last_verified,omitempty"`
+}
+
+// IsStale returns true if the entry has passed its expiry date.
+// Returns false if ExpiresAt is not set (backward compatibility).
+func (e Entry) IsStale() bool {
+	if e.ExpiresAt == "" {
+		return false
+	}
+	today := Today()
+	if e.ExpiresAt >= today {
+		return false
+	}
+	if e.LastVerified == "" {
+		return true
+	}
+	return e.LastVerified < e.ExpiresAt
+}
+
+// ExpiryDate returns the default expiry date (6 months from now).
+func ExpiryDate() string {
+	return time.Now().AddDate(0, stalenessMonths, 0).Format("2006-01-02")
 }
 
 // KnowledgeFile represents a .agents/<category>.yaml file.

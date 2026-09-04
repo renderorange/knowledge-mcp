@@ -168,6 +168,9 @@ func main() {
 			mcp.WithString("confidence",
 				mcp.Description("Filter by confidence: high, medium, or low"),
 			),
+			mcp.WithString("stale",
+				mcp.Description("Filter by staleness: true for stale only, false for fresh only"),
+			),
 			mcp.WithNumber("limit",
 				mcp.Description("Max results (default 10)"),
 			),
@@ -218,6 +221,35 @@ func main() {
 			),
 		),
 		tools.UpdateHandler(projectPathFn, idx),
+	)
+
+	// Register list_projects tool (org-wide mode only)
+	if *orgRoot != "" {
+		s.AddTool(
+			mcp.NewTool("list_projects",
+				mcp.WithDescription("List all discovered projects under the org root"),
+			),
+			tools.ListProjectsHandler(*orgRoot, projectPathFn),
+		)
+	}
+
+	s.AddTool(
+		mcp.NewTool("verify_knowledge",
+			mcp.WithDescription("Mark a knowledge entry as verified, extending its expiry"),
+			mcp.WithString("project",
+				mcp.Required(),
+				mcp.Description("Project name"),
+			),
+			mcp.WithString("category",
+				mcp.Required(),
+				mcp.Description("Category: conventions, subsystems, or decisions"),
+			),
+			mcp.WithString("id",
+				mcp.Required(),
+				mcp.Description("Entry ID to verify (e.g., conv-001)"),
+			),
+		),
+		tools.VerifyHandler(projectPathFn),
 	)
 
 	// Graceful shutdown on SIGTERM/SIGINT
