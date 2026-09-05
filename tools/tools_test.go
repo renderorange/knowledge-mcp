@@ -824,3 +824,38 @@ func TestQueryProjectIsolation(t *testing.T) {
 		t.Errorf("projectA query missing its own data: %s", contentA)
 	}
 }
+
+func TestInitHandlerResolvabilityWarning(t *testing.T) {
+	root := t.TempDir()
+	resolver, _, err := projects.Build([]string{root}, nil)
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
+
+	// Init a project NOT under any configured root
+	outside := t.TempDir()
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{"project_path": outside}
+	result, err := InitHandler(resolver)(context.Background(), req)
+	if err != nil {
+		t.Fatalf("InitHandler() error: %v", err)
+	}
+	content := extractTextContent(t, result)
+	if !strings.Contains(content, "not under any configured") {
+		t.Errorf("expected resolvability warning, got: %s", content)
+	}
+
+	// Init a project under the root: no warning
+	inside := filepath.Join(root, "inside")
+	knowledge.EnsureDir(inside)
+	req2 := mcp.CallToolRequest{}
+	req2.Params.Arguments = map[string]interface{}{"project_path": inside}
+	result2, err := InitHandler(resolver)(context.Background(), req2)
+	if err != nil {
+		t.Fatalf("InitHandler() error: %v", err)
+	}
+	content2 := extractTextContent(t, result2)
+	if strings.Contains(content2, "not under any configured") {
+		t.Errorf("unexpected warning for covered path: %s", content2)
+	}
+}
