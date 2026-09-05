@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -19,52 +22,53 @@ import (
 	"github.com/renderorange/agents_knowledge/tools"
 )
 
+type pathList []string
+
+func (p *pathList) String() string {
+	return strings.Join(*p, ",")
+}
+
+func (p *pathList) Set(v string) error {
+	if v == "" {
+		return fmt.Errorf("empty path")
+	}
+	*p = append(*p, v)
+	return nil
+}
+
 func main() {
-	projectPath := flag.String("project", "", "Path to a single project root")
-	orgRoot := flag.String("root", "", "Path to org root (discovers projects)")
+	var roots pathList
+	var projs pathList
+	indexOverride := flag.String("index", "", "Override the search index location")
+	flag.Var(&roots, "root", "Org root whose immediate children are projects (repeatable)")
+	flag.Var(&projs, "project", "Single project root (repeatable)")
 	flag.Parse()
 
-	if *projectPath == "" && *orgRoot == "" {
-		fmt.Fprintln(os.Stderr, "error: either --project or --root is required")
+	if len(roots) == 0 && len(projs) == 0 {
+		fmt.Fprintln(os.Stderr, "error: at least one --project or --root is required")
 		os.Exit(1)
 	}
 
-	if *projectPath != "" && *orgRoot != "" {
-		fmt.Fprintln(os.Stderr, "error: --project and --root are mutually exclusive")
-		os.Exit(1)
-	}
-
-	// Build the project resolver
-	var resolverRoots, resolverProjects []string
-	if *orgRoot != "" {
-		resolverRoots = []string{*orgRoot}
-	} else {
-		resolverProjects = []string{*projectPath}
-	}
-	resolver, warnings, err := projects.Build(resolverRoots, resolverProjects)
+	resolver, warnings, err := projects.Build([]string(roots), []string(projs))
 	if err != nil {
-		log.Fatalf("configure projects: %v", err)
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
 	}
 	for _, w := range warnings {
 		log.Printf("warning: %s", w)
 	}
 
-	// Determine index path
-	var indexBasePath string
-	if *orgRoot != "" {
-		indexBasePath = filepath.Join(*orgRoot, ".agents", ".index")
-	} else {
-		indexBasePath = filepath.Join(*projectPath, ".agents", ".index")
+	indexBasePath, err := indexLocation(*indexOverride, roots, projs, resolver.Entries())
+	if err != nil {
+		log.Fatalf("determine index location: %v", err)
 	}
 
-	// Initialize bleve index
 	idx, err := search.NewIndex(indexBasePath, resolver.KnownNames())
 	if err != nil {
 		log.Fatalf("init search index: %v", err)
 	}
 	defer idx.Close()
 
-	// Index existing knowledge
 	indexAll(resolver, idx)
 
 	// Create MCP server
@@ -189,7 +193,7 @@ func main() {
 	)
 
 	// Register list_projects tool (org-wide mode only)
-	if len(resolverRoots) > 0 {
+	if len(roots) > 0 {
 		s.AddTool(
 			mcp.NewTool("list_projects",
 				mcp.WithDescription("List all discovered projects across configured roots"),
@@ -290,4 +294,30 @@ func indexOrgKnowledge(root, orgName string, idx *search.Index) {
 			log.Printf("warning: failed to index %s/org-%s: %v", orgName, catFile, addErr)
 		}
 	}
+}
+
+// indexLocation picks the bleve index path: explicit override, legacy
+// per-config locations for single-entry configs, or a hashed XDG state
+// dir for multi-entry configs.
+func indexLocation(override string, roots, projs pathList, canonicalEntries []string) (string, error) {
+	if override != "" {
+		return filepath.Abs(override)
+	}
+	if len(roots)+len(projs) == 1 {
+		single := roots
+		if len(single) == 0 {
+			single = projs
+		}
+		return filepath.Join(single[0], ".agents", ".index"), nil
+	}
+	base := os.Getenv("XDG_STATE_HOME")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve state dir: %w", err)
+		}
+		base = filepath.Join(home, ".local", "state")
+	}
+	sum := sha256.Sum256([]byte(strings.Join(canonicalEntries, "\x00")))
+	return filepath.Join(base, "knowledge-mcp", hex.EncodeToString(sum[:8])+".index"), nil
 }

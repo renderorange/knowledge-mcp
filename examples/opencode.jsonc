@@ -2,7 +2,10 @@
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "knowledge-mcp": {
-      "command": ["/path/to/knowledge-mcp", "--root", "/path/to/org"],
+      "command": ["/path/to/knowledge-mcp",
+        "--root", "/path/to/org",
+        "--root", "/path/to/another-org",
+        "--project", "/path/to/standalone-project"],
       "type": "local"
     }
   }

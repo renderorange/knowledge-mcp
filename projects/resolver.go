@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -42,6 +43,7 @@ type Resolver struct {
 	byBare    map[string][]Ref
 	byPath    map[string]Ref
 	roots     []string
+	explicit  []string
 }
 
 // Build constructs a resolver from org roots and explicit project paths.
@@ -116,6 +118,7 @@ func Build(roots, projects []string) (*Resolver, []string, error) {
 		byBare:    map[string][]Ref{},
 		byPath:    map[string]Ref{},
 		roots:     rootPaths,
+		explicit:  projPaths,
 	}
 
 	// Dedupe by path; project kind wins over org kind.
@@ -234,6 +237,14 @@ func (r *Resolver) Snapshot() []Ref {
 	out := make([]Ref, len(r.refs))
 	copy(out, r.refs)
 	sort.Slice(out, func(i, j int) bool { return out[i].Address < out[j].Address })
+	return out
+}
+
+// Entries returns the canonicalized root and explicit-project paths the
+// resolver was built with, sorted. Used to key the shared index location.
+func (r *Resolver) Entries() []string {
+	out := slices.Concat(r.roots, r.explicit)
+	sort.Strings(out)
 	return out
 }
 

@@ -44,6 +44,31 @@ Discovers all projects under the org root. Indexes per-project `.agents/` and or
 }
 ```
 
+### Multi-root / multi-project
+
+Repeat `--root` and `--project` as needed; they can be mixed:
+
+```jsonc
+// opencode.jsonc
+{
+  "mcp": {
+    "knowledge-mcp": {
+      "command": ["knowledge-mcp",
+        "--root", "/home/blaine/git",
+        "--root", "/home/blaine/work",
+        "--project", "/scratch/proto"],
+      "type": "local"
+    }
+  }
+}
+```
+
+- Each `--root` discovers its immediate children as projects (one level deep — pass deeper directories as additional flags).
+- Duplicate project basenames across roots are addressed as `<root>/<project>` (e.g. `work/api`); `list_projects` shows which names need qualification.
+- `query_knowledge` accepts org root names to search that root's `.agents/knowledge/` files.
+- Multi-entry configurations store the search index under `$XDG_STATE_HOME/knowledge-mcp/` (default `~/.local/state/knowledge-mcp/`). Single-flag configurations keep the index inside their own `.agents/`.
+- `--index <path>` overrides the index location in all modes.
+
 ## MCP Tools
 
 | Tool | Description |
