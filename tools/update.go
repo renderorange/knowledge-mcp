@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"log"
 	"path/filepath"
 
 	"github.com/renderorange/agents_knowledge/knowledge"
@@ -123,8 +124,11 @@ func UpdateHandler(projectPathFn func(project string) string, idx *search.Index)
 						Detail:     entry.Detail,
 						Category:   category,
 						Confidence: entry.Confidence,
+						Project:    project,
 					}
-					idx.Add(id, doc)
+					if indexErr := idx.Add(project+"/"+id, doc); indexErr != nil {
+						log.Printf("warning: failed to index %s/%s: %v", project, id, indexErr)
+					}
 					break
 				}
 			}

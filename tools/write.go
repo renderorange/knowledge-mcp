@@ -104,9 +104,10 @@ func WriteHandler(projectPathFn func(project string) string, idx *search.Index) 
 				Detail:     detail,
 				Category:   category,
 				Confidence: confidence,
+				Project:    project,
 			}
-			if indexErr := idx.Add(id, doc); indexErr != nil {
-				log.Printf("warning: failed to index %s: %v", id, indexErr)
+			if indexErr := idx.Add(project+"/"+id, doc); indexErr != nil {
+				log.Printf("warning: failed to index %s/%s: %v", project, id, indexErr)
 			}
 		}
 

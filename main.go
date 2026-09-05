@@ -89,7 +89,25 @@ func main() {
 	}
 
 	// Initialize bleve index
-	idx, err := search.NewIndex(indexBasePath)
+	indexNamesFn := func() []string {
+		if *orgRoot != "" {
+			var names []string
+			entries, err := os.ReadDir(*orgRoot)
+			if err == nil {
+				for _, e := range entries {
+					if e.IsDir() && e.Name() != ".agents" && e.Name() != ".git" {
+						names = append(names, e.Name())
+					}
+				}
+			}
+			if info, statErr := os.Stat(filepath.Join(*orgRoot, ".agents", "knowledge")); statErr == nil && info.IsDir() {
+				names = append(names, filepath.Base(*orgRoot))
+			}
+			return names
+		}
+		return []string{filepath.Base(*projectPath)}
+	}
+	idx, err := search.NewIndex(indexBasePath, indexNamesFn())
 	if err != nil {
 		log.Fatalf("init search index: %v", err)
 	}
@@ -99,7 +117,7 @@ func main() {
 	if *orgRoot != "" {
 		indexExistingKnowledge(*orgRoot, idx)
 	} else {
-		indexProjectKnowledge(*projectPath, idx)
+		indexProjectKnowledge(*projectPath, filepath.Base(*projectPath), idx)
 	}
 
 	// Create MCP server
@@ -269,8 +287,9 @@ func main() {
 	}
 }
 
-// indexProjectKnowledge indexes all knowledge files in a single project.
-func indexProjectKnowledge(projectPath string, idx *search.Index) {
+// indexProjectKnowledge indexes all knowledge files in a single project
+// under the given addressing name.
+func indexProjectKnowledge(projectPath, projectName string, idx *search.Index) {
 	agentsDir := filepath.Join(projectPath, ".agents")
 	for _, cat := range knowledge.ValidCategories() {
 		catPath := knowledge.CategoryFilePath(agentsDir, cat)
@@ -284,14 +303,19 @@ func indexProjectKnowledge(projectPath string, idx *search.Index) {
 				Detail:     entry.Detail,
 				Category:   cat,
 				Confidence: entry.Confidence,
+				Project:    projectName,
 			}
-			idx.Add(entry.ID, doc)
+			if addErr := idx.Add(projectName+"/"+entry.ID, doc); addErr != nil {
+				log.Printf("warning: failed to index %s/%s: %v", projectName, entry.ID, addErr)
+			}
 		}
 	}
 }
 
-// indexExistingKnowledge indexes knowledge from all projects under an org root.
+// indexExistingKnowledge indexes org-level and project knowledge under an org root.
 func indexExistingKnowledge(orgRoot string, idx *search.Index) {
+	orgName := filepath.Base(orgRoot)
+
 	// Index org-level knowledge
 	orgAgentsDir := filepath.Join(orgRoot, ".agents", "knowledge")
 	for _, catFile := range []string{"architecture.md", "review.md"} {
@@ -304,8 +328,11 @@ func indexExistingKnowledge(orgRoot string, idx *search.Index) {
 			Summary:  fmt.Sprintf("org-level knowledge: %s", catFile),
 			Detail:   string(data),
 			Category: "conventions",
+			Project:  orgName,
 		}
-		idx.Add("org-"+catFile, doc)
+		if addErr := idx.Add(orgName+"/org-"+catFile, doc); addErr != nil {
+			log.Printf("warning: failed to index %s/org-%s: %v", orgName, catFile, addErr)
+		}
 	}
 
 	// Discover and index project knowledge
@@ -317,7 +344,6 @@ func indexExistingKnowledge(orgRoot string, idx *search.Index) {
 		if !entry.IsDir() || entry.Name() == ".agents" || entry.Name() == ".git" {
 			continue
 		}
-		projectPath := filepath.Join(orgRoot, entry.Name())
-		indexProjectKnowledge(projectPath, idx)
+		indexProjectKnowledge(filepath.Join(orgRoot, entry.Name()), entry.Name(), idx)
 	}
 }

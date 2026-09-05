@@ -41,7 +41,7 @@ func QueryHandler(projectPathFn func(project string) string, idx *search.Index) 
 			return mcp.NewToolResultError(fmt.Sprintf("invalid confidence: %q (must be high, medium, or low)", confidence)), nil
 		}
 
-		results, err := idx.Query(query, category, confidence, limit)
+		results, err := idx.Query(project, query, category, confidence, limit)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("search error: %v", err)), nil
 		}

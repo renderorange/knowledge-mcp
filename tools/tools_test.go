@@ -69,7 +69,7 @@ func TestWriteHandler(t *testing.T) {
 	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), kf)
 
 	indexPath := filepath.Join(dir, ".index")
-	idx, _ := search.NewIndex(indexPath)
+	idx, _ := search.NewIndex(indexPath, []string{"test"})
 	defer idx.Close()
 
 	projectPathFn := func(project string) string {
@@ -203,7 +203,7 @@ func TestQueryHandler(t *testing.T) {
 	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), kf)
 
 	indexPath := filepath.Join(dir, ".index")
-	idx, _ := search.NewIndex(indexPath)
+	idx, _ := search.NewIndex(indexPath, []string{"test"})
 	defer idx.Close()
 
 	projectPathFn := func(project string) string {
@@ -399,7 +399,7 @@ func TestUpdateHandler(t *testing.T) {
 	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), kf)
 
 	indexPath := filepath.Join(dir, ".index")
-	idx, _ := search.NewIndex(indexPath)
+	idx, _ := search.NewIndex(indexPath, []string{"test"})
 	defer idx.Close()
 
 	projectPathFn := func(project string) string {

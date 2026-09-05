@@ -18,7 +18,7 @@ func TestEndToEnd(t *testing.T) {
 	dir := t.TempDir()
 
 	indexPath := filepath.Join(dir, ".index")
-	idx, err := search.NewIndex(indexPath)
+	idx, err := search.NewIndex(indexPath, []string{"test-project"})
 	if err != nil {
 		t.Fatalf("NewIndex() error: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestOrgWideMode(t *testing.T) {
 	InitHandler(context.Background(), initReqB)
 
 	indexPath := filepath.Join(orgDir, ".index")
-	idx, err := search.NewIndex(indexPath)
+	idx, err := search.NewIndex(indexPath, []string{"test-project"})
 	if err != nil {
 		t.Fatalf("NewIndex() error: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestFullWorkflow(t *testing.T) {
 		return ""
 	}
 
-	idx, err := search.NewIndex(filepath.Join(orgRoot, ".agents", ".index"))
+	idx, err := search.NewIndex(filepath.Join(orgRoot, ".agents", ".index"), []string{"app", "lib"})
 	if err != nil {
 		t.Fatalf("NewIndex() error: %v", err)
 	}
