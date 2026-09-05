@@ -10,33 +10,33 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/renderorange/agents_knowledge/knowledge"
+	"github.com/renderorange/agents_knowledge/projects"
 	"github.com/renderorange/agents_knowledge/search"
 	"gopkg.in/yaml.v3"
 )
 
 func TestEndToEnd(t *testing.T) {
 	dir := t.TempDir()
+	projectName := filepath.Base(dir)
+
+	resolver, _, err := projects.Build(nil, []string{dir})
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
 
 	indexPath := filepath.Join(dir, ".index")
-	idx, err := search.NewIndex(indexPath)
+	idx, err := search.NewIndex(indexPath, []string{projectName})
 	if err != nil {
 		t.Fatalf("NewIndex() error: %v", err)
 	}
 	defer idx.Close()
-
-	projectPathFn := func(project string) string {
-		if project == "test-project" {
-			return dir
-		}
-		return ""
-	}
 
 	// Step 1: Init
 	initReq := mcp.CallToolRequest{}
 	initReq.Params.Arguments = map[string]interface{}{
 		"project_path": dir,
 	}
-	initResult, err := InitHandler(context.Background(), initReq)
+	initResult, err := InitHandler(resolver)(context.Background(), initReq)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -45,10 +45,10 @@ func TestEndToEnd(t *testing.T) {
 	}
 
 	// Step 2: Write conventions
-	writeHandler := WriteHandler(projectPathFn, idx)
+	writeHandler := WriteHandler(resolver, idx)
 	writeReq := mcp.CallToolRequest{}
 	writeReq.Params.Arguments = map[string]interface{}{
-		"project":    "test-project",
+		"project":    projectName,
 		"category":   "conventions",
 		"summary":    "Build with make test",
 		"detail":     "Run make test before committing. Also make test-stability and make lint.",
@@ -66,7 +66,7 @@ func TestEndToEnd(t *testing.T) {
 	// Step 3: Write subsystem
 	writeReq2 := mcp.CallToolRequest{}
 	writeReq2.Params.Arguments = map[string]interface{}{
-		"project":    "test-project",
+		"project":    projectName,
 		"category":   "subsystems",
 		"summary":    "Reverb uses Schroeder allpass",
 		"detail":     "The reverb engine uses a Schroeder allpass chain with 2048-sample buffer.",
@@ -84,7 +84,7 @@ func TestEndToEnd(t *testing.T) {
 	// Step 4: Write decision
 	writeReq3 := mcp.CallToolRequest{}
 	writeReq3.Params.Arguments = map[string]interface{}{
-		"project":    "test-project",
+		"project":    projectName,
 		"category":   "decisions",
 		"summary":    "Sag floor 2.0V",
 		"detail":     "The sag floor is pinned at 2.0V to keep analog sag audible at starve >= 9.5.",
@@ -100,10 +100,10 @@ func TestEndToEnd(t *testing.T) {
 	}
 
 	// Step 5: Query — full text, verify result content
-	queryHandler := QueryHandler(projectPathFn, idx)
+	queryHandler := QueryHandler(resolver, idx)
 	queryReq := mcp.CallToolRequest{}
 	queryReq.Params.Arguments = map[string]interface{}{
-		"project": "test-project",
+		"project": projectName,
 		"query":   "reverb allpass",
 	}
 	queryResult, err := queryHandler(context.Background(), queryReq)
@@ -126,11 +126,14 @@ func TestEndToEnd(t *testing.T) {
 	if queryResults[0].ID != "sub-001" {
 		t.Errorf("top result ID = %q, want %q", queryResults[0].ID, "sub-001")
 	}
+	if queryResults[0].Project != projectName {
+		t.Errorf("top result Project = %q, want %q", queryResults[0].Project, projectName)
+	}
 
 	// Step 6: Query — category filter
 	queryReq2 := mcp.CallToolRequest{}
 	queryReq2.Params.Arguments = map[string]interface{}{
-		"project":  "test-project",
+		"project":  projectName,
 		"category": "conventions",
 	}
 	queryResult2, err := queryHandler(context.Background(), queryReq2)
@@ -154,10 +157,10 @@ func TestEndToEnd(t *testing.T) {
 	}
 
 	// Step 7: List, verify output contains entries
-	listHandler := ListHandler(projectPathFn)
+	listHandler := ListHandler(resolver)
 	listReq := mcp.CallToolRequest{}
 	listReq.Params.Arguments = map[string]interface{}{
-		"project": "test-project",
+		"project": projectName,
 	}
 	listResult, err := listHandler(context.Background(), listReq)
 	if err != nil {
@@ -179,10 +182,10 @@ func TestEndToEnd(t *testing.T) {
 	}
 
 	// Step 8: Update
-	updateHandler := UpdateHandler(projectPathFn, idx)
+	updateHandler := UpdateHandler(resolver, idx)
 	updateReq := mcp.CallToolRequest{}
 	updateReq.Params.Arguments = map[string]interface{}{
-		"project":    "test-project",
+		"project":    projectName,
 		"category":   "decisions",
 		"id":         "dec-001",
 		"confidence": "high",
@@ -219,34 +222,29 @@ func TestOrgWideMode(t *testing.T) {
 	knowledge.EnsureDir(filepath.Join(projA, ".agents"))
 	knowledge.EnsureDir(filepath.Join(projB, ".agents"))
 
+	resolver, _, err := projects.Build([]string{orgDir}, nil)
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
+
 	// Init both projects
 	initReqA := mcp.CallToolRequest{}
 	initReqA.Params.Arguments = map[string]interface{}{"project_path": projA}
-	InitHandler(context.Background(), initReqA)
+	InitHandler(resolver)(context.Background(), initReqA)
 
 	initReqB := mcp.CallToolRequest{}
 	initReqB.Params.Arguments = map[string]interface{}{"project_path": projB}
-	InitHandler(context.Background(), initReqB)
+	InitHandler(resolver)(context.Background(), initReqB)
 
 	indexPath := filepath.Join(orgDir, ".index")
-	idx, err := search.NewIndex(indexPath)
+	idx, err := search.NewIndex(indexPath, []string{"projectA", "projectB"})
 	if err != nil {
 		t.Fatalf("NewIndex() error: %v", err)
 	}
 	defer idx.Close()
 
-	// Org-wide project resolver with path traversal protection
-	projectPathFn := func(project string) string {
-		path := filepath.Join(orgDir, project)
-		info, err := os.Stat(path)
-		if err == nil && info.IsDir() {
-			return path
-		}
-		return ""
-	}
-
 	// Write to projectA
-	writeHandler := WriteHandler(projectPathFn, idx)
+	writeHandler := WriteHandler(resolver, idx)
 	req := mcp.CallToolRequest{}
 	req.Params.Arguments = map[string]interface{}{
 		"project":    "projectA",
@@ -265,7 +263,7 @@ func TestOrgWideMode(t *testing.T) {
 	}
 
 	// List projectA
-	listHandler := ListHandler(projectPathFn)
+	listHandler := ListHandler(resolver)
 	listReq := mcp.CallToolRequest{}
 	listReq.Params.Arguments = map[string]interface{}{"project": "projectA"}
 	listResult, _ := listHandler(context.Background(), listReq)
@@ -302,22 +300,19 @@ func TestFullWorkflow(t *testing.T) {
 		os.WriteFile(filepath.Join(agentsDir, "_meta.yaml"), data, 0644)
 	}
 
-	projectPathFn := func(project string) string {
-		path := filepath.Join(orgRoot, project)
-		if info, err := os.Stat(path); err == nil && info.IsDir() {
-			return path
-		}
-		return ""
+	resolver, _, err := projects.Build([]string{orgRoot}, nil)
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
 	}
 
-	idx, err := search.NewIndex(filepath.Join(orgRoot, ".agents", ".index"))
+	idx, err := search.NewIndex(filepath.Join(orgRoot, ".agents", ".index"), []string{"app", "lib"})
 	if err != nil {
 		t.Fatalf("NewIndex() error: %v", err)
 	}
 	defer idx.Close()
 
 	// 1. List projects
-	listHandler := ListProjectsHandler(orgRoot, projectPathFn)
+	listHandler := ListProjectsHandler(resolver)
 	listResult, err := listHandler(context.Background(), mcp.CallToolRequest{})
 	if err != nil {
 		t.Fatalf("list_projects error: %v", err)
@@ -328,7 +323,7 @@ func TestFullWorkflow(t *testing.T) {
 	}
 
 	// 2. Write knowledge
-	writeHandler := WriteHandler(projectPathFn, idx)
+	writeHandler := WriteHandler(resolver, idx)
 	writeReq := mcp.CallToolRequest{}
 	writeReq.Params.Arguments = map[string]interface{}{
 		"project":    "app",
@@ -348,7 +343,7 @@ func TestFullWorkflow(t *testing.T) {
 	}
 
 	// 3. Verify entry
-	verifyHandler := VerifyHandler(projectPathFn)
+	verifyHandler := VerifyHandler(resolver)
 	verifyReq := mcp.CallToolRequest{}
 	verifyReq.Params.Arguments = map[string]interface{}{
 		"project":  "app",
@@ -365,7 +360,7 @@ func TestFullWorkflow(t *testing.T) {
 	}
 
 	// 4. Query with staleness filter (stale=false should return the fresh entry)
-	queryHandler := QueryHandler(projectPathFn, idx)
+	queryHandler := QueryHandler(resolver, idx)
 	queryReq := mcp.CallToolRequest{}
 	queryReq.Params.Arguments = map[string]interface{}{
 		"project": "app",

@@ -3,44 +3,38 @@ package tools
 import (
 	"context"
 	"fmt"
-	"os"
-	"sort"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/renderorange/agents_knowledge/projects"
 )
 
 // ListProjectsHandler handles the list_projects MCP tool.
-func ListProjectsHandler(orgRoot string, projectPathFn func(project string) string) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func ListProjectsHandler(res *projects.Resolver) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		entries, err := os.ReadDir(orgRoot)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("read org root: %v", err)), nil
-		}
-
-		var projects []string
-		for _, entry := range entries {
-			if !entry.IsDir() {
+		var projLines, orgLines []string
+		for _, ref := range res.Snapshot() {
+			if ref.Kind == projects.KindOrg {
+				orgLines = append(orgLines, fmt.Sprintf("- %s (%s)", ref.Name, ref.Path))
 				continue
 			}
-			name := entry.Name()
-			if name == ".agents" || name == ".git" || name == ".index" {
-				continue
+			line := fmt.Sprintf("- %s (%s)", ref.Address, ref.Path)
+			if ref.Address != ref.Name {
+				line += "  [ambiguous — use qualified name]"
 			}
-			if projectPathFn(name) != "" {
-				projects = append(projects, name)
-			}
+			projLines = append(projLines, line)
 		}
 
-		sort.Strings(projects)
-
-		if len(projects) == 0 {
+		var sections []string
+		if len(projLines) > 0 {
+			sections = append(sections, "projects:\n"+strings.Join(projLines, "\n"))
+		}
+		if len(orgLines) > 0 {
+			sections = append(sections, "org roots:\n"+strings.Join(orgLines, "\n"))
+		}
+		if len(sections) == 0 {
 			return mcp.NewToolResultText("no projects found"), nil
 		}
-
-		output := "discovered projects:\n"
-		for _, p := range projects {
-			output += fmt.Sprintf("- %s\n", p)
-		}
-		return mcp.NewToolResultText(output), nil
+		return mcp.NewToolResultText(strings.Join(sections, "\n") + "\n"), nil
 	}
 }

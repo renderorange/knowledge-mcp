@@ -5,17 +5,20 @@ import (
 	"testing"
 )
 
-func TestIndexCreateAndQuery(t *testing.T) {
-	dir := t.TempDir()
-	indexPath := filepath.Join(dir, "test.bleve")
-
-	idx, err := NewIndex(indexPath)
+func newIndex(t *testing.T, path string, names []string) *Index {
+	t.Helper()
+	idx, err := NewIndex(path, names)
 	if err != nil {
 		t.Fatalf("NewIndex() error: %v", err)
 	}
+	return idx
+}
+
+func TestIndexCreateAndQuery(t *testing.T) {
+	dir := t.TempDir()
+	idx := newIndex(t, filepath.Join(dir, "test.bleve"), []string{"test"})
 	defer idx.Close()
 
-	// Index some documents
 	docs := []struct {
 		id  string
 		doc SearchDocument
@@ -27,6 +30,7 @@ func TestIndexCreateAndQuery(t *testing.T) {
 				Detail:     "Every pedal exposes pedal_init, pedal_set_params, pedal_process",
 				Category:   "conventions",
 				Confidence: "high",
+				Project:    "test",
 			},
 		},
 		{
@@ -36,6 +40,7 @@ func TestIndexCreateAndQuery(t *testing.T) {
 				Detail:     "The reverb engine uses a Schroeder allpass chain with 2048-sample buffer",
 				Category:   "subsystems",
 				Confidence: "high",
+				Project:    "test",
 			},
 		},
 		{
@@ -45,6 +50,7 @@ func TestIndexCreateAndQuery(t *testing.T) {
 				Detail:     "The sag circuit uses a series resistor with load-ratio model",
 				Category:   "decisions",
 				Confidence: "medium",
+				Project:    "test",
 			},
 		},
 	}
@@ -55,8 +61,7 @@ func TestIndexCreateAndQuery(t *testing.T) {
 		}
 	}
 
-	// Full-text query
-	results, err := idx.Query("reverb allpass", "", "", 10)
+	results, err := idx.Query("test", "reverb allpass", "", "", 10)
 	if err != nil {
 		t.Fatalf("Query() error: %v", err)
 	}
@@ -66,9 +71,11 @@ func TestIndexCreateAndQuery(t *testing.T) {
 	if results[0].ID != "sub-001" {
 		t.Errorf("top result ID = %q, want %q", results[0].ID, "sub-001")
 	}
+	if results[0].Project != "test" {
+		t.Errorf("top result Project = %q, want %q", results[0].Project, "test")
+	}
 
-	// Category filter
-	results, err = idx.Query("", "conventions", "", 10)
+	results, err = idx.Query("test", "", "conventions", "", 10)
 	if err != nil {
 		t.Fatalf("Query() error: %v", err)
 	}
@@ -79,8 +86,7 @@ func TestIndexCreateAndQuery(t *testing.T) {
 		t.Errorf("result ID = %q, want %q", results[0].ID, "conv-001")
 	}
 
-	// Confidence filter
-	results, err = idx.Query("", "", "medium", 10)
+	results, err = idx.Query("test", "", "", "medium", 10)
 	if err != nil {
 		t.Fatalf("Query() error: %v", err)
 	}
@@ -91,8 +97,7 @@ func TestIndexCreateAndQuery(t *testing.T) {
 		t.Errorf("result ID = %q, want %q", results[0].ID, "dec-001")
 	}
 
-	// Combined filter
-	results, err = idx.Query("DSP", "conventions", "high", 10)
+	results, err = idx.Query("test", "DSP", "conventions", "high", 10)
 	if err != nil {
 		t.Fatalf("Query() error: %v", err)
 	}
@@ -101,24 +106,66 @@ func TestIndexCreateAndQuery(t *testing.T) {
 	}
 }
 
-func TestIndexEmptyQuery(t *testing.T) {
+func TestProjectScopingNoCrossProjectLeakage(t *testing.T) {
+	dir := t.TempDir()
+	indexPath := filepath.Join(dir, "test.bleve")
+	idx := newIndex(t, indexPath, []string{"alpha", "beta"})
+	defer idx.Close()
+
+	// Same bare entry ID in two projects — must not overwrite each other.
+	if err := idx.Add("alpha/conv-001", SearchDocument{
+		Summary: "alpha convention", Detail: "alpha detail",
+		Category: "conventions", Confidence: "high", Project: "alpha",
+	}); err != nil {
+		t.Fatalf("Add(alpha) error: %v", err)
+	}
+	if err := idx.Add("beta/conv-001", SearchDocument{
+		Summary: "beta convention", Detail: "beta detail",
+		Category: "conventions", Confidence: "high", Project: "beta",
+	}); err != nil {
+		t.Fatalf("Add(beta) error: %v", err)
+	}
+
+	alphaResults, err := idx.Query("alpha", "", "", "", 10)
+	if err != nil {
+		t.Fatalf("Query(alpha) error: %v", err)
+	}
+	if len(alphaResults) != 1 || alphaResults[0].Summary != "alpha convention" {
+		t.Fatalf("alpha query = %+v, want exactly the alpha doc", alphaResults)
+	}
+
+	betaResults, err := idx.Query("beta", "", "", "", 10)
+	if err != nil {
+		t.Fatalf("Query(beta) error: %v", err)
+	}
+	if len(betaResults) != 1 || betaResults[0].Summary != "beta convention" {
+		t.Fatalf("beta query = %+v, want exactly the beta doc", betaResults)
+	}
+
+	// Unfiltered query sees both docs (no data loss from key collision).
+	all, err := idx.Query("", "", "", "", 10)
+	if err != nil {
+		t.Fatalf("Query(all) error: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("len(all) = %d, want 2 (collision would leave 1)", len(all))
+	}
+}
+
+func TestIndexReopen(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := filepath.Join(dir, "test.bleve")
 
-	idx, err := NewIndex(indexPath)
-	if err != nil {
-		t.Fatalf("NewIndex() error: %v", err)
-	}
-	defer idx.Close()
-
-	if err := idx.Add("test-001", SearchDocument{
-		Summary: "test",
-		Detail:  "test detail",
-	}); err != nil {
+	idx := newIndex(t, indexPath, []string{"test"})
+	if err := idx.Add("test/conv-001", SearchDocument{Summary: "persist", Project: "test"}); err != nil {
 		t.Fatalf("Add() error: %v", err)
 	}
+	idx.Close()
 
-	results, err := idx.Query("", "", "", 10)
+	idx2 := newIndex(t, indexPath, []string{"test"})
+	defer idx2.Close()
+
+	results, err := idx2.Query("test", "persist", "", "", 10)
 	if err != nil {
 		t.Fatalf("Query() error: %v", err)
 	}
@@ -127,28 +174,51 @@ func TestIndexEmptyQuery(t *testing.T) {
 	}
 }
 
-func TestIndexReopen(t *testing.T) {
+func TestIndexRebuildOnNameSetChange(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := filepath.Join(dir, "test.bleve")
 
-	idx, err := NewIndex(indexPath)
-	if err != nil {
-		t.Fatalf("NewIndex() error: %v", err)
-	}
-
-	if err := idx.Add("test-001", SearchDocument{Summary: "persist"}); err != nil {
+	idx := newIndex(t, indexPath, []string{"alpha"})
+	if err := idx.Add("alpha/conv-001", SearchDocument{Summary: "alpha doc", Project: "alpha"}); err != nil {
 		t.Fatalf("Add() error: %v", err)
 	}
 	idx.Close()
 
-	// Reopen and verify persistence
-	idx2, err := NewIndex(indexPath)
+	// Same name set: no rebuild, doc persists.
+	idx2 := newIndex(t, indexPath, []string{"alpha"})
+	results, err := idx2.Query("alpha", "", "", "", 10)
 	if err != nil {
-		t.Fatalf("NewIndex() reopen error: %v", err)
+		t.Fatalf("Query() error: %v", err)
 	}
-	defer idx2.Close()
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1 (index was needlessly rebuilt)", len(results))
+	}
+	idx2.Close()
 
-	results, err := idx2.Query("persist", "", "", 10)
+	// Different name set: rebuild, old docs gone.
+	idx3 := newIndex(t, indexPath, []string{"alpha", "beta"})
+	defer idx3.Close()
+	results, err = idx3.Query("alpha", "", "", "", 10)
+	if err != nil {
+		t.Fatalf("Query() error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("len(results) = %d, want 0 (index should have been rebuilt)", len(results))
+	}
+}
+
+func TestIndexEmptyQuery(t *testing.T) {
+	dir := t.TempDir()
+	idx := newIndex(t, filepath.Join(dir, "test.bleve"), []string{"test"})
+	defer idx.Close()
+
+	if err := idx.Add("test/test-001", SearchDocument{
+		Summary: "test", Detail: "test detail", Project: "test",
+	}); err != nil {
+		t.Fatalf("Add() error: %v", err)
+	}
+
+	results, err := idx.Query("test", "", "", "", 10)
 	if err != nil {
 		t.Fatalf("Query() error: %v", err)
 	}
