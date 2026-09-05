@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/renderorange/agents_knowledge/knowledge"
 	"github.com/renderorange/agents_knowledge/projects"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // ListHandler handles the list_knowledge MCP tool.

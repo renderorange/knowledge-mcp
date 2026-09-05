@@ -6,9 +6,9 @@ func TestIsStale(t *testing.T) {
 	today := Today()
 
 	tests := []struct {
-		name        string
-		entry       Entry
-		want        bool
+		name  string
+		entry Entry
+		want  bool
 	}{
 		{
 			name:  "no expiry date",

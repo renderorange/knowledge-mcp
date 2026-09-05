@@ -150,7 +150,7 @@ func TestWriteHandlerValidation(t *testing.T) {
 			args: map[string]interface{}{
 				"project": "test", "category": "conventions",
 				"summary": "this is a very long summary that exceeds one hundred characters and should be rejected by the validation logic in the handler",
-				"detail": "d", "confidence": "high", "source": "s",
+				"detail":  "d", "confidence": "high", "source": "s",
 			},
 		},
 		{
