@@ -11,18 +11,24 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/renderorange/agents_knowledge/knowledge"
+	"github.com/renderorange/agents_knowledge/projects"
 	"github.com/renderorange/agents_knowledge/search"
 )
 
 func TestInitHandler(t *testing.T) {
 	dir := t.TempDir()
 
+	resolver, _, err := projects.Build(nil, []string{dir})
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
+
 	req := mcp.CallToolRequest{}
 	req.Params.Arguments = map[string]interface{}{
 		"project_path": dir,
 	}
 
-	result, err := InitHandler(context.Background(), req)
+	result, err := InitHandler(resolver)(context.Background(), req)
 	if err != nil {
 		t.Fatalf("InitHandler() error: %v", err)
 	}
@@ -51,7 +57,7 @@ func TestInitHandler(t *testing.T) {
 	}
 
 	// Calling again should say "already initialized"
-	result2, err := InitHandler(context.Background(), req)
+	result2, err := InitHandler(resolver)(context.Background(), req)
 	if err != nil {
 		t.Fatalf("second InitHandler() error: %v", err)
 	}
@@ -61,25 +67,23 @@ func TestInitHandler(t *testing.T) {
 }
 
 func TestWriteHandler(t *testing.T) {
-	dir := t.TempDir()
-	agentsDir := filepath.Join(dir, ".agents")
-	knowledge.EnsureDir(agentsDir)
+	root := t.TempDir()
+	dir := filepath.Join(root, "test")
+	knowledge.EnsureDir(filepath.Join(dir, ".agents"))
 
 	kf := &knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{}}
-	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), kf)
+	knowledge.Save(knowledge.CategoryFilePath(filepath.Join(dir, ".agents"), "conventions"), kf)
 
 	indexPath := filepath.Join(dir, ".index")
 	idx, _ := search.NewIndex(indexPath, []string{"test"})
 	defer idx.Close()
 
-	projectPathFn := func(project string) string {
-		if project == "test" {
-			return dir
-		}
-		return ""
+	resolver, _, err := projects.Build([]string{root}, nil)
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
 	}
 
-	handler := WriteHandler(projectPathFn, idx)
+	handler := WriteHandler(resolver, idx)
 
 	req := mcp.CallToolRequest{}
 	req.Params.Arguments = map[string]interface{}{
@@ -100,7 +104,7 @@ func TestWriteHandler(t *testing.T) {
 	}
 
 	// Verify entry was written
-	loaded, _ := knowledge.Load(knowledge.CategoryFilePath(agentsDir, "conventions"))
+	loaded, _ := knowledge.Load(knowledge.CategoryFilePath(filepath.Join(dir, ".agents"), "conventions"))
 	if len(loaded.Entries) != 1 {
 		t.Fatalf("len(Entries) = %d, want 1", len(loaded.Entries))
 	}
@@ -116,14 +120,19 @@ func TestWriteHandler(t *testing.T) {
 }
 
 func TestWriteHandlerValidation(t *testing.T) {
-	dir := t.TempDir()
+	root := t.TempDir()
+	dir := filepath.Join(root, "test")
 	agentsDir := filepath.Join(dir, ".agents")
 	knowledge.EnsureDir(agentsDir)
 	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"),
 		&knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{}})
 
-	projectPathFn := func(project string) string { return dir }
-	handler := WriteHandler(projectPathFn, nil)
+	resolver, _, err := projects.Build([]string{root}, nil)
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
+
+	handler := WriteHandler(resolver, nil)
 
 	tests := []struct {
 		name string
@@ -169,14 +178,19 @@ func TestWriteHandlerValidation(t *testing.T) {
 }
 
 func TestWriteHandlerDetailSizeLimit(t *testing.T) {
-	dir := t.TempDir()
+	root := t.TempDir()
+	dir := filepath.Join(root, "test")
 	agentsDir := filepath.Join(dir, ".agents")
 	knowledge.EnsureDir(agentsDir)
 	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"),
 		&knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{}})
 
-	projectPathFn := func(project string) string { return dir }
-	handler := WriteHandler(projectPathFn, nil)
+	resolver, _, err := projects.Build([]string{root}, nil)
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
+
+	handler := WriteHandler(resolver, nil)
 
 	// Create a detail string exceeding 1MB
 	bigDetail := strings.Repeat("x", maxDetailSize+1)
@@ -195,7 +209,8 @@ func TestWriteHandlerDetailSizeLimit(t *testing.T) {
 }
 
 func TestQueryHandler(t *testing.T) {
-	dir := t.TempDir()
+	root := t.TempDir()
+	dir := filepath.Join(root, "test")
 	agentsDir := filepath.Join(dir, ".agents")
 	knowledge.EnsureDir(agentsDir)
 
@@ -206,14 +221,12 @@ func TestQueryHandler(t *testing.T) {
 	idx, _ := search.NewIndex(indexPath, []string{"test"})
 	defer idx.Close()
 
-	projectPathFn := func(project string) string {
-		if project == "test" {
-			return dir
-		}
-		return ""
+	resolver, _, err := projects.Build([]string{root}, nil)
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
 	}
 
-	handler := QueryHandler(projectPathFn, idx)
+	handler := QueryHandler(resolver, idx)
 
 	t.Run("unknown project", func(t *testing.T) {
 		req := mcp.CallToolRequest{}
@@ -313,21 +326,20 @@ func TestQueryHandler(t *testing.T) {
 }
 
 func TestListHandler(t *testing.T) {
-	dir := t.TempDir()
+	root := t.TempDir()
+	dir := filepath.Join(root, "test")
 	agentsDir := filepath.Join(dir, ".agents")
 	knowledge.EnsureDir(agentsDir)
 
 	kf := &knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{}}
 	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), kf)
 
-	projectPathFn := func(project string) string {
-		if project == "test" {
-			return dir
-		}
-		return ""
+	resolver, _, err := projects.Build([]string{root}, nil)
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
 	}
 
-	handler := ListHandler(projectPathFn)
+	handler := ListHandler(resolver)
 
 	t.Run("unknown project", func(t *testing.T) {
 		req := mcp.CallToolRequest{}
@@ -383,7 +395,8 @@ func TestListHandler(t *testing.T) {
 }
 
 func TestUpdateHandler(t *testing.T) {
-	dir := t.TempDir()
+	root := t.TempDir()
+	dir := filepath.Join(root, "test")
 	agentsDir := filepath.Join(dir, ".agents")
 	knowledge.EnsureDir(agentsDir)
 
@@ -402,14 +415,12 @@ func TestUpdateHandler(t *testing.T) {
 	idx, _ := search.NewIndex(indexPath, []string{"test"})
 	defer idx.Close()
 
-	projectPathFn := func(project string) string {
-		if project == "test" {
-			return dir
-		}
-		return ""
+	resolver, _, err := projects.Build([]string{root}, nil)
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
 	}
 
-	handler := UpdateHandler(projectPathFn, idx)
+	handler := UpdateHandler(resolver, idx)
 
 	t.Run("update confidence", func(t *testing.T) {
 		req := mcp.CallToolRequest{}
@@ -567,21 +578,20 @@ func TestUpdateHandler(t *testing.T) {
 }
 
 func TestConcurrentWrites(t *testing.T) {
-	dir := t.TempDir()
+	root := t.TempDir()
+	dir := filepath.Join(root, "test")
 	agentsDir := filepath.Join(dir, ".agents")
 	knowledge.EnsureDir(agentsDir)
 
 	kf := &knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{}}
 	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), kf)
 
-	projectPathFn := func(project string) string {
-		if project == "test" {
-			return dir
-		}
-		return ""
+	resolver, _, err := projects.Build([]string{root}, nil)
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
 	}
 
-	handler := WriteHandler(projectPathFn, nil)
+	handler := WriteHandler(resolver, nil)
 
 	const goroutines = 20
 	var wg sync.WaitGroup
@@ -635,7 +645,8 @@ func TestConcurrentWrites(t *testing.T) {
 }
 
 func TestConcurrentWriteAndUpdate(t *testing.T) {
-	dir := t.TempDir()
+	root := t.TempDir()
+	dir := filepath.Join(root, "test")
 	agentsDir := filepath.Join(dir, ".agents")
 	knowledge.EnsureDir(agentsDir)
 
@@ -650,15 +661,13 @@ func TestConcurrentWriteAndUpdate(t *testing.T) {
 	kf := &knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{entry}}
 	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), kf)
 
-	projectPathFn := func(project string) string {
-		if project == "test" {
-			return dir
-		}
-		return ""
+	resolver, _, err := projects.Build([]string{root}, nil)
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
 	}
 
-	writeHandler := WriteHandler(projectPathFn, nil)
-	updateHandler := UpdateHandler(projectPathFn, nil)
+	writeHandler := WriteHandler(resolver, nil)
+	updateHandler := UpdateHandler(resolver, nil)
 
 	var wg sync.WaitGroup
 
@@ -706,5 +715,112 @@ func TestConcurrentWriteAndUpdate(t *testing.T) {
 	// Original entry + 10 new writes
 	if len(loaded.Entries) != 11 {
 		t.Errorf("len(Entries) = %d, want 11", len(loaded.Entries))
+	}
+}
+
+func TestOrgRefWriteGuard(t *testing.T) {
+	root := t.TempDir()
+	knowledge.EnsureDir(filepath.Join(root, ".agents", "knowledge"))
+
+	resolver, _, err := projects.Build([]string{root}, nil)
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
+	rootName := filepath.Base(root)
+
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{
+		"project":    rootName,
+		"category":   "conventions",
+		"summary":    "s",
+		"detail":     "d",
+		"confidence": "high",
+		"source":     "test",
+	}
+	result, _ := WriteHandler(resolver, nil)(context.Background(), req)
+	if result == nil || !result.IsError {
+		t.Fatal("write to org root should be an error")
+	}
+	content := extractTextContent(t, result)
+	if !strings.Contains(content, "org root") {
+		t.Errorf("error should mention org root, got: %s", content)
+	}
+}
+
+func TestAmbiguousProjectError(t *testing.T) {
+	r1 := t.TempDir()
+	r2 := t.TempDir()
+	for _, r := range []string{r1, r2} {
+		knowledge.EnsureDir(filepath.Join(r, "api", ".agents"))
+	}
+
+	resolver, _, err := projects.Build([]string{r1, r2}, nil)
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
+
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{
+		"project":    "api",
+		"category":   "conventions",
+		"summary":    "s",
+		"detail":     "d",
+		"confidence": "high",
+		"source":     "test",
+	}
+	result, _ := WriteHandler(resolver, nil)(context.Background(), req)
+	if result == nil || !result.IsError {
+		t.Fatal("write to ambiguous bare name should be an error")
+	}
+	content := extractTextContent(t, result)
+	if !strings.Contains(content, "ambiguous") {
+		t.Errorf("error should say ambiguous, got: %s", content)
+	}
+}
+
+func TestQueryProjectIsolation(t *testing.T) {
+	orgDir := t.TempDir()
+	for _, p := range []string{"projectA", "projectB"} {
+		knowledge.EnsureDir(filepath.Join(orgDir, p, ".agents"))
+	}
+
+	resolver, _, err := projects.Build([]string{orgDir}, nil)
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
+
+	idx, err := search.NewIndex(filepath.Join(orgDir, ".index"), []string{"projectA", "projectB"})
+	if err != nil {
+		t.Fatalf("NewIndex() error: %v", err)
+	}
+	defer idx.Close()
+
+	write := WriteHandler(resolver, idx)
+	for _, p := range []string{"projectA", "projectB"} {
+		req := mcp.CallToolRequest{}
+		req.Params.Arguments = map[string]interface{}{
+			"project":    p,
+			"category":   "conventions",
+			"summary":    p + " convention",
+			"detail":     p + " detail",
+			"confidence": "high",
+			"source":     "test",
+		}
+		result, _ := write(context.Background(), req)
+		if result == nil || result.IsError {
+			t.Fatalf("write to %s failed: %+v", p, result)
+		}
+	}
+
+	query := QueryHandler(resolver, idx)
+	reqA := mcp.CallToolRequest{}
+	reqA.Params.Arguments = map[string]interface{}{"project": "projectA"}
+	resultA, _ := query(context.Background(), reqA)
+	contentA := extractTextContent(t, resultA)
+	if strings.Contains(contentA, "projectB convention") {
+		t.Errorf("projectA query leaked projectB data: %s", contentA)
+	}
+	if !strings.Contains(contentA, "projectA convention") {
+		t.Errorf("projectA query missing its own data: %s", contentA)
 	}
 }

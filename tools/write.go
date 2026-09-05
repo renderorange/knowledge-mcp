@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/renderorange/agents_knowledge/knowledge"
+	"github.com/renderorange/agents_knowledge/projects"
 	"github.com/renderorange/agents_knowledge/search"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -16,8 +17,7 @@ const maxDetailSize = 1024 * 1024 // 1MB
 var fileLocks = knowledge.NewFileLocks()
 
 // WriteHandler handles the write_knowledge MCP tool.
-// It requires a projectPathFn to resolve the project path from the project name.
-func WriteHandler(projectPathFn func(project string) string, idx *search.Index) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func WriteHandler(res *projects.Resolver, idx *search.Index) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		project, err := request.RequireString("project")
 		if err != nil {
@@ -61,10 +61,16 @@ func WriteHandler(projectPathFn func(project string) string, idx *search.Index) 
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		projectPath := projectPathFn(project)
-		if projectPath == "" {
-			return mcp.NewToolResultError(fmt.Sprintf("unknown project: %q", project)), nil
+		ref, resolveErr := res.Resolve(project)
+		if resolveErr != nil {
+			return mcp.NewToolResultError(resolveErr.Error()), nil
 		}
+		if ref.Kind == projects.KindOrg {
+			return mcp.NewToolResultError(fmt.Sprintf(
+				"%q is an org root; org-level knowledge is file-based — edit %s/.agents/knowledge/ directly",
+				project, ref.Path)), nil
+		}
+		projectPath := ref.Path
 
 		agentsDir := filepath.Join(projectPath, ".agents")
 		catPath := knowledge.CategoryFilePath(agentsDir, category)
@@ -104,10 +110,10 @@ func WriteHandler(projectPathFn func(project string) string, idx *search.Index) 
 				Detail:     detail,
 				Category:   category,
 				Confidence: confidence,
-				Project:    project,
+				Project:    ref.Address,
 			}
-			if indexErr := idx.Add(project+"/"+id, doc); indexErr != nil {
-				log.Printf("warning: failed to index %s/%s: %v", project, id, indexErr)
+			if indexErr := idx.Add(ref.Address+"/"+id, doc); indexErr != nil {
+				log.Printf("warning: failed to index %s/%s: %v", ref.Address, id, indexErr)
 			}
 		}
 

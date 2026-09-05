@@ -7,21 +7,22 @@ import (
 	"path/filepath"
 
 	"github.com/renderorange/agents_knowledge/knowledge"
+	"github.com/renderorange/agents_knowledge/projects"
 	"github.com/renderorange/agents_knowledge/search"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // QueryHandler handles the query_knowledge MCP tool.
-func QueryHandler(projectPathFn func(project string) string, idx *search.Index) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func QueryHandler(res *projects.Resolver, idx *search.Index) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		project, err := request.RequireString("project")
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		projectPath := projectPathFn(project)
-		if projectPath == "" {
-			return mcp.NewToolResultError(fmt.Sprintf("unknown project: %q", project)), nil
+		ref, resolveErr := res.Resolve(project)
+		if resolveErr != nil {
+			return mcp.NewToolResultError(resolveErr.Error()), nil
 		}
 
 		query := request.GetString("query", "")
@@ -41,14 +42,17 @@ func QueryHandler(projectPathFn func(project string) string, idx *search.Index) 
 			return mcp.NewToolResultError(fmt.Sprintf("invalid confidence: %q (must be high, medium, or low)", confidence)), nil
 		}
 
-		results, err := idx.Query(project, query, category, confidence, limit)
+		results, err := idx.Query(ref.Address, query, category, confidence, limit)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("search error: %v", err)), nil
 		}
 
 		// Apply staleness filter if requested
 		if staleFilter != "" && len(results) > 0 {
-			staleMap := buildStalenessMap(projectPath, project)
+			if ref.Kind == projects.KindOrg {
+				return mcp.NewToolResultError("staleness filter not supported for org roots"), nil
+			}
+			staleMap := buildStalenessMap(ref.Path, project)
 			var filtered []search.SearchResult
 			for _, r := range results {
 				isStale, exists := staleMap[r.ID]

@@ -8,13 +8,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/renderorange/agents_knowledge/knowledge"
+	"github.com/renderorange/agents_knowledge/projects"
 	"github.com/renderorange/agents_knowledge/search"
 	"github.com/renderorange/agents_knowledge/tools"
 )
@@ -34,91 +34,38 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Determine project resolver and index path
-	var projectPathFn func(string) string
-	var indexBasePath string
-
+	// Build the project resolver
+	var resolverRoots, resolverProjects []string
 	if *orgRoot != "" {
-		absOrgRoot, err := filepath.Abs(*orgRoot)
-		if err != nil {
-			log.Fatalf("resolve org root: %v", err)
-		}
-		*orgRoot = absOrgRoot
+		resolverRoots = []string{*orgRoot}
+	} else {
+		resolverProjects = []string{*projectPath}
+	}
+	resolver, warnings, err := projects.Build(resolverRoots, resolverProjects)
+	if err != nil {
+		log.Fatalf("configure projects: %v", err)
+	}
+	for _, w := range warnings {
+		log.Printf("warning: %s", w)
+	}
 
-		// Org-wide mode: discover projects with path traversal protection
-		projectPathFn = func(project string) string {
-			// Reject path separators and traversal sequences
-			if strings.ContainsAny(project, `/\`) || project == "." || project == ".." {
-				return ""
-			}
-
-			path := filepath.Join(*orgRoot, project)
-
-			// Resolve to absolute and verify it's under orgRoot
-			absPath, err := filepath.Abs(path)
-			if err != nil {
-				return ""
-			}
-			if !strings.HasPrefix(absPath, *orgRoot+string(filepath.Separator)) {
-				return ""
-			}
-
-			info, err := os.Stat(absPath)
-			if err == nil && info.IsDir() {
-				return absPath
-			}
-			return ""
-		}
+	// Determine index path
+	var indexBasePath string
+	if *orgRoot != "" {
 		indexBasePath = filepath.Join(*orgRoot, ".agents", ".index")
 	} else {
-		// Single-project mode
-		absProjectPath, err := filepath.Abs(*projectPath)
-		if err != nil {
-			log.Fatalf("resolve project path: %v", err)
-		}
-		*projectPath = absProjectPath
-
-		projectName := filepath.Base(*projectPath)
-		projectPathFn = func(project string) string {
-			if project == projectName {
-				return *projectPath
-			}
-			return ""
-		}
 		indexBasePath = filepath.Join(*projectPath, ".agents", ".index")
 	}
 
 	// Initialize bleve index
-	indexNamesFn := func() []string {
-		if *orgRoot != "" {
-			var names []string
-			entries, err := os.ReadDir(*orgRoot)
-			if err == nil {
-				for _, e := range entries {
-					if e.IsDir() && e.Name() != ".agents" && e.Name() != ".git" {
-						names = append(names, e.Name())
-					}
-				}
-			}
-			if info, statErr := os.Stat(filepath.Join(*orgRoot, ".agents", "knowledge")); statErr == nil && info.IsDir() {
-				names = append(names, filepath.Base(*orgRoot))
-			}
-			return names
-		}
-		return []string{filepath.Base(*projectPath)}
-	}
-	idx, err := search.NewIndex(indexBasePath, indexNamesFn())
+	idx, err := search.NewIndex(indexBasePath, resolver.KnownNames())
 	if err != nil {
 		log.Fatalf("init search index: %v", err)
 	}
 	defer idx.Close()
 
-	// Index existing knowledge files
-	if *orgRoot != "" {
-		indexExistingKnowledge(*orgRoot, idx)
-	} else {
-		indexProjectKnowledge(*projectPath, filepath.Base(*projectPath), idx)
-	}
+	// Index existing knowledge
+	indexAll(resolver, idx)
 
 	// Create MCP server
 	s := server.NewMCPServer(
@@ -136,7 +83,7 @@ func main() {
 				mcp.Description("Absolute path to the project root"),
 			),
 		),
-		tools.InitHandler,
+		tools.InitHandler(resolver),
 	)
 
 	s.AddTool(
@@ -144,7 +91,7 @@ func main() {
 			mcp.WithDescription("Add a new knowledge entry to a project's .agents/ store"),
 			mcp.WithString("project",
 				mcp.Required(),
-				mcp.Description("Project name"),
+				mcp.Description("Project name (bare if unique, else root/project)"),
 			),
 			mcp.WithString("category",
 				mcp.Required(),
@@ -167,7 +114,7 @@ func main() {
 				mcp.Description("How this was learned (provenance)"),
 			),
 		),
-		tools.WriteHandler(projectPathFn, idx),
+		tools.WriteHandler(resolver, idx),
 	)
 
 	s.AddTool(
@@ -175,7 +122,7 @@ func main() {
 			mcp.WithDescription("Search knowledge entries by text, category, and confidence"),
 			mcp.WithString("project",
 				mcp.Required(),
-				mcp.Description("Project name"),
+				mcp.Description("Project name (bare if unique, else root/project)"),
 			),
 			mcp.WithString("query",
 				mcp.Description("Full-text search query"),
@@ -193,7 +140,7 @@ func main() {
 				mcp.Description("Max results (default 10)"),
 			),
 		),
-		tools.QueryHandler(projectPathFn, idx),
+		tools.QueryHandler(resolver, idx),
 	)
 
 	s.AddTool(
@@ -201,13 +148,13 @@ func main() {
 			mcp.WithDescription("List all knowledge entries for a project (summaries only)"),
 			mcp.WithString("project",
 				mcp.Required(),
-				mcp.Description("Project name"),
+				mcp.Description("Project name (bare if unique, else root/project)"),
 			),
 			mcp.WithString("category",
 				mcp.Description("Filter by category: conventions, subsystems, or decisions"),
 			),
 		),
-		tools.ListHandler(projectPathFn),
+		tools.ListHandler(resolver),
 	)
 
 	s.AddTool(
@@ -215,7 +162,7 @@ func main() {
 			mcp.WithDescription("Update an existing knowledge entry by ID"),
 			mcp.WithString("project",
 				mcp.Required(),
-				mcp.Description("Project name"),
+				mcp.Description("Project name (bare if unique, else root/project)"),
 			),
 			mcp.WithString("category",
 				mcp.Required(),
@@ -238,16 +185,16 @@ func main() {
 				mcp.Description("ID of entry this supersedes (optional)"),
 			),
 		),
-		tools.UpdateHandler(projectPathFn, idx),
+		tools.UpdateHandler(resolver, idx),
 	)
 
 	// Register list_projects tool (org-wide mode only)
-	if *orgRoot != "" {
+	if len(resolverRoots) > 0 {
 		s.AddTool(
 			mcp.NewTool("list_projects",
-				mcp.WithDescription("List all discovered projects under the org root"),
+				mcp.WithDescription("List all discovered projects across configured roots"),
 			),
-			tools.ListProjectsHandler(*orgRoot, projectPathFn),
+			tools.ListProjectsHandler(resolver),
 		)
 	}
 
@@ -256,7 +203,7 @@ func main() {
 			mcp.WithDescription("Mark a knowledge entry as verified, extending its expiry"),
 			mcp.WithString("project",
 				mcp.Required(),
-				mcp.Description("Project name"),
+				mcp.Description("Project name (bare if unique, else root/project)"),
 			),
 			mcp.WithString("category",
 				mcp.Required(),
@@ -267,7 +214,7 @@ func main() {
 				mcp.Description("Entry ID to verify (e.g., conv-001)"),
 			),
 		),
-		tools.VerifyHandler(projectPathFn),
+		tools.VerifyHandler(resolver),
 	)
 
 	// Graceful shutdown on SIGTERM/SIGINT
@@ -284,6 +231,18 @@ func main() {
 	// Start stdio server
 	if err := server.ServeStdio(s); err != nil {
 		log.Fatalf("server error: %v", err)
+	}
+}
+
+// indexAll indexes every ref known to the resolver.
+func indexAll(res *projects.Resolver, idx *search.Index) {
+	for _, ref := range res.Snapshot() {
+		switch ref.Kind {
+		case projects.KindProject:
+			indexProjectKnowledge(ref.Path, ref.Address, idx)
+		case projects.KindOrg:
+			indexOrgKnowledge(ref.Path, ref.Name, idx)
+		}
 	}
 }
 
@@ -312,12 +271,9 @@ func indexProjectKnowledge(projectPath, projectName string, idx *search.Index) {
 	}
 }
 
-// indexExistingKnowledge indexes org-level and project knowledge under an org root.
-func indexExistingKnowledge(orgRoot string, idx *search.Index) {
-	orgName := filepath.Base(orgRoot)
-
-	// Index org-level knowledge
-	orgAgentsDir := filepath.Join(orgRoot, ".agents", "knowledge")
+// indexOrgKnowledge indexes an org root's .agents/knowledge/ files.
+func indexOrgKnowledge(root, orgName string, idx *search.Index) {
+	orgAgentsDir := filepath.Join(root, ".agents", "knowledge")
 	for _, catFile := range []string{"architecture.md", "review.md"} {
 		filePath := filepath.Join(orgAgentsDir, catFile)
 		data, err := os.ReadFile(filePath)
@@ -333,17 +289,5 @@ func indexExistingKnowledge(orgRoot string, idx *search.Index) {
 		if addErr := idx.Add(orgName+"/org-"+catFile, doc); addErr != nil {
 			log.Printf("warning: failed to index %s/org-%s: %v", orgName, catFile, addErr)
 		}
-	}
-
-	// Discover and index project knowledge
-	entries, err := os.ReadDir(orgRoot)
-	if err != nil {
-		return
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() || entry.Name() == ".agents" || entry.Name() == ".git" {
-			continue
-		}
-		indexProjectKnowledge(filepath.Join(orgRoot, entry.Name()), entry.Name(), idx)
 	}
 }
