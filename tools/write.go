@@ -48,14 +48,6 @@ func WriteHandler(res *projects.Resolver, idx *search.Index) func(context.Contex
 			return mcp.NewToolResultError(fmt.Sprintf("detail too long: %d bytes (max %d)", len(detail), maxDetailSize)), nil
 		}
 
-		confidence, err := request.RequireString("confidence")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		if !knowledge.IsValidConfidence(confidence) {
-			return mcp.NewToolResultError(fmt.Sprintf("invalid confidence: %q (must be high, medium, or low)", confidence)), nil
-		}
-
 		source, err := request.RequireString("source")
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
@@ -87,14 +79,11 @@ func WriteHandler(res *projects.Resolver, idx *search.Index) func(context.Contex
 		id := knowledge.NextID(kf.Entries, knowledge.CategoryPrefix(category))
 
 		entry := knowledge.Entry{
-			ID:           id,
-			Summary:      summary,
-			Detail:       detail,
-			Confidence:   confidence,
-			Source:       source,
-			Date:         knowledge.Today(),
-			ExpiresAt:    knowledge.ExpiryDate(),
-			LastVerified: knowledge.Today(),
+			ID:         id,
+			Summary:    summary,
+			Detail:     detail,
+			Source:     source,
+			Date:       knowledge.Today(),
 		}
 
 		kf.Entries = append(kf.Entries, entry)
@@ -106,11 +95,10 @@ func WriteHandler(res *projects.Resolver, idx *search.Index) func(context.Contex
 		// Index in bleve
 		if idx != nil {
 			doc := search.SearchDocument{
-				Summary:    summary,
-				Detail:     detail,
-				Category:   category,
-				Confidence: confidence,
-				Project:    ref.Address,
+				Summary:  summary,
+				Detail:   detail,
+				Category: category,
+				Project:  ref.Address,
 			}
 			if indexErr := idx.Add(ref.Address+"/"+id, doc); indexErr != nil {
 				log.Printf("warning: failed to index %s/%s: %v", ref.Address, id, indexErr)
