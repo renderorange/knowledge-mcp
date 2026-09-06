@@ -87,12 +87,11 @@ func TestWriteHandler(t *testing.T) {
 
 	req := mcp.CallToolRequest{}
 	req.Params.Arguments = map[string]interface{}{
-		"project":    "test",
-		"category":   "conventions",
-		"summary":    "Test convention",
-		"detail":     "Some detail about the convention",
-		"confidence": "high",
-		"source":     "test",
+		"project":  "test",
+		"category": "conventions",
+		"summary":  "Test convention",
+		"detail":   "Some detail about the convention",
+		"source":   "test",
 	}
 
 	result, err := handler(context.Background(), req)
@@ -142,7 +141,7 @@ func TestWriteHandlerValidation(t *testing.T) {
 			name: "invalid category",
 			args: map[string]interface{}{
 				"project": "test", "category": "invalid", "summary": "s",
-				"detail": "d", "confidence": "high", "source": "s",
+				"detail": "d", "source": "s",
 			},
 		},
 		{
@@ -150,14 +149,7 @@ func TestWriteHandlerValidation(t *testing.T) {
 			args: map[string]interface{}{
 				"project": "test", "category": "conventions",
 				"summary": "this is a very long summary that exceeds one hundred characters and should be rejected by the validation logic in the handler",
-				"detail":  "d", "confidence": "high", "source": "s",
-			},
-		},
-		{
-			name: "invalid confidence",
-			args: map[string]interface{}{
-				"project": "test", "category": "conventions", "summary": "s",
-				"detail": "d", "confidence": "maybe", "source": "s",
+				"detail":  "d", "source": "s",
 			},
 		},
 	}
@@ -197,7 +189,7 @@ func TestWriteHandlerDetailSizeLimit(t *testing.T) {
 	req := mcp.CallToolRequest{}
 	req.Params.Arguments = map[string]interface{}{
 		"project": "test", "category": "conventions", "summary": "s",
-		"detail": bigDetail, "confidence": "high", "source": "s",
+		"detail": bigDetail, "source": "s",
 	}
 	result, _ := handler(context.Background(), req)
 	if result == nil {
@@ -258,36 +250,6 @@ func TestQueryHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid confidence", func(t *testing.T) {
-		req := mcp.CallToolRequest{}
-		req.Params.Arguments = map[string]interface{}{
-			"project":    "test",
-			"confidence": "maybe",
-		}
-		result, _ := handler(context.Background(), req)
-		if result == nil {
-			t.Fatal("handler returned nil")
-		}
-		if !result.IsError {
-			t.Fatal("expected error for invalid confidence")
-		}
-	})
-
-	t.Run("invalid stale", func(t *testing.T) {
-		req := mcp.CallToolRequest{}
-		req.Params.Arguments = map[string]interface{}{
-			"project": "test",
-			"stale":   "maybe",
-		}
-		result, _ := handler(context.Background(), req)
-		if result == nil {
-			t.Fatal("handler returned nil")
-		}
-		if !result.IsError {
-			t.Fatal("expected error for invalid stale value")
-		}
-	})
-
 	t.Run("full text query", func(t *testing.T) {
 		req := mcp.CallToolRequest{}
 		req.Params.Arguments = map[string]interface{}{
@@ -311,18 +273,6 @@ func TestQueryHandler(t *testing.T) {
 			t.Fatal("handler returned nil")
 		}
 	})
-
-	t.Run("confidence filter", func(t *testing.T) {
-		req := mcp.CallToolRequest{}
-		req.Params.Arguments = map[string]interface{}{
-			"project":    "test",
-			"confidence": "high",
-		}
-		result, _ := handler(context.Background(), req)
-		if result == nil {
-			t.Fatal("handler returned nil")
-		}
-	})
 }
 
 func TestListHandler(t *testing.T) {
@@ -339,7 +289,14 @@ func TestListHandler(t *testing.T) {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
 
-	handler := ListHandler(resolver)
+	indexPath := filepath.Join(root, ".index")
+	idx, err := search.NewIndex(indexPath, []string{"test"})
+	if err != nil {
+		t.Fatalf("search.NewIndex() error: %v", err)
+	}
+	defer idx.Close()
+
+	handler := ListHandler(resolver, idx)
 
 	t.Run("unknown project", func(t *testing.T) {
 		req := mcp.CallToolRequest{}
@@ -401,12 +358,11 @@ func TestUpdateHandler(t *testing.T) {
 	knowledge.EnsureDir(agentsDir)
 
 	entry := knowledge.Entry{
-		ID:         "conv-001",
-		Summary:    "Test entry",
-		Detail:     "Some detail",
-		Confidence: "medium",
-		Source:     "test",
-		Date:       "2024-01-01",
+		ID:      "conv-001",
+		Summary: "Test entry",
+		Detail:  "Some detail",
+		Source:  "test",
+		Date:    "2024-01-01",
 	}
 	kf := &knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{entry}}
 	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), kf)
@@ -421,32 +377,6 @@ func TestUpdateHandler(t *testing.T) {
 	}
 
 	handler := UpdateHandler(resolver, idx)
-
-	t.Run("update confidence", func(t *testing.T) {
-		req := mcp.CallToolRequest{}
-		req.Params.Arguments = map[string]interface{}{
-			"project":    "test",
-			"category":   "conventions",
-			"id":         "conv-001",
-			"confidence": "high",
-		}
-		result, err := handler(context.Background(), req)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if result == nil {
-			t.Fatal("handler returned nil")
-		}
-
-		// Verify the update persisted and date was refreshed
-		loaded, _ := knowledge.Load(knowledge.CategoryFilePath(agentsDir, "conventions"))
-		if loaded.Entries[0].Confidence != "high" {
-			t.Errorf("confidence = %q, want %q", loaded.Entries[0].Confidence, "high")
-		}
-		if loaded.Entries[0].Date != knowledge.Today() {
-			t.Errorf("date = %q, want %q (should be refreshed on update)", loaded.Entries[0].Date, knowledge.Today())
-		}
-	})
 
 	t.Run("update summary", func(t *testing.T) {
 		req := mcp.CallToolRequest{}
@@ -467,6 +397,9 @@ func TestUpdateHandler(t *testing.T) {
 		loaded, _ := knowledge.Load(knowledge.CategoryFilePath(agentsDir, "conventions"))
 		if loaded.Entries[0].Summary != "Updated summary" {
 			t.Errorf("summary = %q, want %q", loaded.Entries[0].Summary, "Updated summary")
+		}
+		if loaded.Entries[0].Date != knowledge.Today() {
+			t.Errorf("date = %q, want %q (should be refreshed on update)", loaded.Entries[0].Date, knowledge.Today())
 		}
 	})
 
@@ -495,27 +428,10 @@ func TestUpdateHandler(t *testing.T) {
 	t.Run("unknown entry", func(t *testing.T) {
 		req := mcp.CallToolRequest{}
 		req.Params.Arguments = map[string]interface{}{
-			"project":    "test",
-			"category":   "conventions",
-			"id":         "nonexistent",
-			"confidence": "high",
-		}
-		result, _ := handler(context.Background(), req)
-		if result == nil {
-			t.Fatal("handler returned nil")
-		}
-		if !result.IsError {
-			t.Fatal("expected error result")
-		}
-	})
-
-	t.Run("invalid confidence", func(t *testing.T) {
-		req := mcp.CallToolRequest{}
-		req.Params.Arguments = map[string]interface{}{
-			"project":    "test",
-			"category":   "conventions",
-			"id":         "conv-001",
-			"confidence": "maybe",
+			"project":  "test",
+			"category": "conventions",
+			"id":       "nonexistent",
+			"summary":  "Updated",
 		}
 		result, _ := handler(context.Background(), req)
 		if result == nil {
@@ -529,10 +445,10 @@ func TestUpdateHandler(t *testing.T) {
 	t.Run("unknown project", func(t *testing.T) {
 		req := mcp.CallToolRequest{}
 		req.Params.Arguments = map[string]interface{}{
-			"project":    "nonexistent",
-			"category":   "conventions",
-			"id":         "conv-001",
-			"confidence": "high",
+			"project":  "nonexistent",
+			"category": "conventions",
+			"id":       "conv-001",
+			"summary":  "Updated",
 		}
 		result, _ := handler(context.Background(), req)
 		if result == nil {
@@ -651,12 +567,11 @@ func TestConcurrentWriteAndUpdate(t *testing.T) {
 	knowledge.EnsureDir(agentsDir)
 
 	entry := knowledge.Entry{
-		ID:         "conv-001",
-		Summary:    "Original",
-		Detail:     "Original detail",
-		Confidence: "medium",
-		Source:     "test",
-		Date:       "2024-01-01",
+		ID:      "conv-001",
+		Summary: "Original",
+		Detail:  "Original detail",
+		Source:  "test",
+		Date:    "2024-01-01",
 	}
 	kf := &knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{entry}}
 	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), kf)
@@ -678,12 +593,11 @@ func TestConcurrentWriteAndUpdate(t *testing.T) {
 			defer wg.Done()
 			req := mcp.CallToolRequest{}
 			req.Params.Arguments = map[string]interface{}{
-				"project":    "test",
-				"category":   "conventions",
-				"summary":    fmt.Sprintf("write %d", n),
-				"detail":     "detail",
-				"confidence": "high",
-				"source":     "test",
+				"project":  "test",
+				"category": "conventions",
+				"summary":  fmt.Sprintf("write %d", n),
+				"detail":   "detail",
+				"source":   "test",
 			}
 			writeHandler(context.Background(), req)
 		}(i)
@@ -696,10 +610,10 @@ func TestConcurrentWriteAndUpdate(t *testing.T) {
 			defer wg.Done()
 			req := mcp.CallToolRequest{}
 			req.Params.Arguments = map[string]interface{}{
-				"project":    "test",
-				"category":   "conventions",
-				"id":         "conv-001",
-				"confidence": "high",
+				"project":  "test",
+				"category": "conventions",
+				"id":       "conv-001",
+				"summary":  fmt.Sprintf("update %d", n),
 			}
 			updateHandler(context.Background(), req)
 		}(i)
@@ -730,12 +644,11 @@ func TestOrgRefWriteGuard(t *testing.T) {
 
 	req := mcp.CallToolRequest{}
 	req.Params.Arguments = map[string]interface{}{
-		"project":    rootName,
-		"category":   "conventions",
-		"summary":    "s",
-		"detail":     "d",
-		"confidence": "high",
-		"source":     "test",
+		"project":  rootName,
+		"category": "conventions",
+		"summary":  "s",
+		"detail":   "d",
+		"source":   "test",
 	}
 	result, _ := WriteHandler(resolver, nil)(context.Background(), req)
 	if result == nil || !result.IsError {
@@ -761,12 +674,11 @@ func TestAmbiguousProjectError(t *testing.T) {
 
 	req := mcp.CallToolRequest{}
 	req.Params.Arguments = map[string]interface{}{
-		"project":    "api",
-		"category":   "conventions",
-		"summary":    "s",
-		"detail":     "d",
-		"confidence": "high",
-		"source":     "test",
+		"project":  "api",
+		"category": "conventions",
+		"summary":  "s",
+		"detail":   "d",
+		"source":   "test",
 	}
 	result, _ := WriteHandler(resolver, nil)(context.Background(), req)
 	if result == nil || !result.IsError {
@@ -799,12 +711,11 @@ func TestQueryProjectIsolation(t *testing.T) {
 	for _, p := range []string{"projectA", "projectB"} {
 		req := mcp.CallToolRequest{}
 		req.Params.Arguments = map[string]interface{}{
-			"project":    p,
-			"category":   "conventions",
-			"summary":    p + " convention",
-			"detail":     p + " detail",
-			"confidence": "high",
-			"source":     "test",
+			"project":  p,
+			"category": "conventions",
+			"summary":  p + " convention",
+			"detail":   p + " detail",
+			"source":   "test",
 		}
 		result, _ := write(context.Background(), req)
 		if result == nil || result.IsError {

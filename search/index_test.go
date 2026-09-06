@@ -26,31 +26,28 @@ func TestIndexCreateAndQuery(t *testing.T) {
 		{
 			id: "conv-001",
 			doc: SearchDocument{
-				Summary:    "DSP interface pattern: PedalParams struct",
-				Detail:     "Every pedal exposes pedal_init, pedal_set_params, pedal_process",
-				Category:   "conventions",
-				Confidence: "high",
-				Project:    "test",
+				Summary:  "DSP interface pattern: PedalParams struct",
+				Detail:   "Every pedal exposes pedal_init, pedal_set_params, pedal_process",
+				Category: "conventions",
+				Project:  "test",
 			},
 		},
 		{
 			id: "sub-001",
 			doc: SearchDocument{
-				Summary:    "Reverb uses Schroeder allpass chain",
-				Detail:     "The reverb engine uses a Schroeder allpass chain with 2048-sample buffer",
-				Category:   "subsystems",
-				Confidence: "high",
-				Project:    "test",
+				Summary:  "Reverb uses Schroeder allpass chain",
+				Detail:   "The reverb engine uses a Schroeder allpass chain with 2048-sample buffer",
+				Category: "subsystems",
+				Project:  "test",
 			},
 		},
 		{
 			id: "dec-001",
 			doc: SearchDocument{
-				Summary:    "Sag floor 2.0V pins analog sag",
-				Detail:     "The sag circuit uses a series resistor with load-ratio model",
-				Category:   "decisions",
-				Confidence: "medium",
-				Project:    "test",
+				Summary:  "Sag floor 2.0V pins analog sag",
+				Detail:   "The sag circuit uses a series resistor with load-ratio model",
+				Category: "decisions",
+				Project:  "test",
 			},
 		},
 	}
@@ -61,7 +58,7 @@ func TestIndexCreateAndQuery(t *testing.T) {
 		}
 	}
 
-	results, err := idx.Query("test", "reverb allpass", "", "", 10)
+	results, err := idx.Query("test", "reverb allpass", "", 10)
 	if err != nil {
 		t.Fatalf("Query() error: %v", err)
 	}
@@ -75,7 +72,7 @@ func TestIndexCreateAndQuery(t *testing.T) {
 		t.Errorf("top result Project = %q, want %q", results[0].Project, "test")
 	}
 
-	results, err = idx.Query("test", "", "conventions", "", 10)
+	results, err = idx.Query("test", "", "conventions", 10)
 	if err != nil {
 		t.Fatalf("Query() error: %v", err)
 	}
@@ -86,7 +83,7 @@ func TestIndexCreateAndQuery(t *testing.T) {
 		t.Errorf("result ID = %q, want %q", results[0].ID, "conv-001")
 	}
 
-	results, err = idx.Query("test", "", "", "medium", 10)
+	results, err = idx.Query("test", "", "decisions", 10)
 	if err != nil {
 		t.Fatalf("Query() error: %v", err)
 	}
@@ -97,7 +94,7 @@ func TestIndexCreateAndQuery(t *testing.T) {
 		t.Errorf("result ID = %q, want %q", results[0].ID, "dec-001")
 	}
 
-	results, err = idx.Query("test", "DSP", "conventions", "high", 10)
+	results, err = idx.Query("test", "DSP", "conventions", 10)
 	if err != nil {
 		t.Fatalf("Query() error: %v", err)
 	}
@@ -115,18 +112,18 @@ func TestProjectScopingNoCrossProjectLeakage(t *testing.T) {
 	// Same bare entry ID in two projects — must not overwrite each other.
 	if err := idx.Add("alpha/conv-001", SearchDocument{
 		Summary: "alpha convention", Detail: "alpha detail",
-		Category: "conventions", Confidence: "high", Project: "alpha",
+		Category: "conventions", Project: "alpha",
 	}); err != nil {
 		t.Fatalf("Add(alpha) error: %v", err)
 	}
 	if err := idx.Add("beta/conv-001", SearchDocument{
 		Summary: "beta convention", Detail: "beta detail",
-		Category: "conventions", Confidence: "high", Project: "beta",
+		Category: "conventions", Project: "beta",
 	}); err != nil {
 		t.Fatalf("Add(beta) error: %v", err)
 	}
 
-	alphaResults, err := idx.Query("alpha", "", "", "", 10)
+	alphaResults, err := idx.Query("alpha", "", "", 10)
 	if err != nil {
 		t.Fatalf("Query(alpha) error: %v", err)
 	}
@@ -134,7 +131,7 @@ func TestProjectScopingNoCrossProjectLeakage(t *testing.T) {
 		t.Fatalf("alpha query = %+v, want exactly the alpha doc", alphaResults)
 	}
 
-	betaResults, err := idx.Query("beta", "", "", "", 10)
+	betaResults, err := idx.Query("beta", "", "", 10)
 	if err != nil {
 		t.Fatalf("Query(beta) error: %v", err)
 	}
@@ -143,7 +140,7 @@ func TestProjectScopingNoCrossProjectLeakage(t *testing.T) {
 	}
 
 	// Unfiltered query sees both docs (no data loss from key collision).
-	all, err := idx.Query("", "", "", "", 10)
+	all, err := idx.Query("", "", "", 10)
 	if err != nil {
 		t.Fatalf("Query(all) error: %v", err)
 	}
@@ -165,7 +162,7 @@ func TestIndexReopen(t *testing.T) {
 	idx2 := newIndex(t, indexPath, []string{"test"})
 	defer idx2.Close()
 
-	results, err := idx2.Query("test", "persist", "", "", 10)
+	results, err := idx2.Query("test", "persist", "", 10)
 	if err != nil {
 		t.Fatalf("Query() error: %v", err)
 	}
@@ -186,7 +183,7 @@ func TestIndexRebuildOnNameSetChange(t *testing.T) {
 
 	// Same name set: no rebuild, doc persists.
 	idx2 := newIndex(t, indexPath, []string{"alpha"})
-	results, err := idx2.Query("alpha", "", "", "", 10)
+	results, err := idx2.Query("alpha", "", "", 10)
 	if err != nil {
 		t.Fatalf("Query() error: %v", err)
 	}
@@ -198,7 +195,7 @@ func TestIndexRebuildOnNameSetChange(t *testing.T) {
 	// Different name set: rebuild, old docs gone.
 	idx3 := newIndex(t, indexPath, []string{"alpha", "beta"})
 	defer idx3.Close()
-	results, err = idx3.Query("alpha", "", "", "", 10)
+	results, err = idx3.Query("alpha", "", "", 10)
 	if err != nil {
 		t.Fatalf("Query() error: %v", err)
 	}
@@ -218,7 +215,7 @@ func TestIndexEmptyQuery(t *testing.T) {
 		t.Fatalf("Add() error: %v", err)
 	}
 
-	results, err := idx.Query("test", "", "", "", 10)
+	results, err := idx.Query("test", "", "", 10)
 	if err != nil {
 		t.Fatalf("Query() error: %v", err)
 	}

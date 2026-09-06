@@ -28,23 +28,21 @@ type indexMeta struct {
 
 // SearchDocument is the document indexed by bleve.
 type SearchDocument struct {
-	Summary    string `json:"summary"`
-	Detail     string `json:"detail"`
-	Category   string `json:"category"`
-	Confidence string `json:"confidence"`
-	Project    string `json:"project"`
+	Summary  string `json:"summary"`
+	Detail   string `json:"detail"`
+	Category string `json:"category"`
+	Project  string `json:"project"`
 }
 
 // SearchResult is a single search result. ID is the bare entry ID;
 // the scoped index key (<project>/<entryID>) is internal.
 type SearchResult struct {
-	ID         string  `json:"id"`
-	Summary    string  `json:"summary"`
-	Detail     string  `json:"detail"`
-	Category   string  `json:"category"`
-	Confidence string  `json:"confidence"`
-	Score      float64 `json:"score"`
-	Project    string  `json:"project"`
+	ID       string  `json:"id"`
+	Summary  string  `json:"summary"`
+	Detail   string  `json:"detail"`
+	Category string  `json:"category"`
+	Score    float64 `json:"score"`
+	Project  string  `json:"project"`
 }
 
 // Index wraps a bleve index for knowledge search.
@@ -125,7 +123,7 @@ func indexMapping() mapping.IndexMapping {
 		fm := bleve.NewTextFieldMapping()
 		doc.AddFieldMappingsAt(f, fm)
 	}
-	for _, f := range []string{"category", "confidence", "project"} {
+	for _, f := range []string{"category", "project"} {
 		fm := bleve.NewTextFieldMapping()
 		fm.Analyzer = "keyword"
 		doc.AddFieldMappingsAt(f, fm)
@@ -141,7 +139,7 @@ func (i *Index) Add(id string, doc SearchDocument) error {
 
 // Query searches the index, scoped to one project, with full-text
 // search and optional filters.
-func (i *Index) Query(project, q, category, confidence string, limit int) ([]SearchResult, error) {
+func (i *Index) Query(project, q, category string, limit int) ([]SearchResult, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -166,11 +164,6 @@ func (i *Index) Query(project, q, category, confidence string, limit int) ([]Sea
 		catQuery.SetField("category")
 		conjuncts = append(conjuncts, catQuery)
 	}
-	if confidence != "" {
-		confQuery := bleve.NewTermQuery(confidence)
-		confQuery.SetField("confidence")
-		conjuncts = append(conjuncts, confQuery)
-	}
 
 	var finalQuery query.Query
 	if len(conjuncts) > 1 {
@@ -181,7 +174,7 @@ func (i *Index) Query(project, q, category, confidence string, limit int) ([]Sea
 
 	req := bleve.NewSearchRequest(finalQuery)
 	req.Size = limit
-	req.Fields = []string{"summary", "detail", "category", "confidence", "project"}
+	req.Fields = []string{"summary", "detail", "category", "project"}
 
 	result, err := i.index.Search(req)
 	if err != nil {
@@ -208,9 +201,6 @@ func (i *Index) Query(project, q, category, confidence string, limit int) ([]Sea
 		}
 		if v, ok := hit.Fields["category"].(string); ok {
 			r.Category = v
-		}
-		if v, ok := hit.Fields["confidence"].(string); ok {
-			r.Confidence = v
 		}
 		results = append(results, r)
 	}

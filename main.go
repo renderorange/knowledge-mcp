@@ -90,40 +90,36 @@ func main() {
 		tools.InitHandler(resolver),
 	)
 
-	s.AddTool(
-		mcp.NewTool("write_knowledge",
-			mcp.WithDescription("Add a new knowledge entry to a project's .agents/ store"),
-			mcp.WithString("project",
-				mcp.Required(),
-				mcp.Description("Project name (bare if unique, else root/project)"),
+		s.AddTool(
+			mcp.NewTool("write_knowledge",
+				mcp.WithDescription("Add a new knowledge entry to a project's .agents/ store"),
+				mcp.WithString("project",
+					mcp.Required(),
+					mcp.Description("Project name (bare if unique, else root/project)"),
+				),
+				mcp.WithString("category",
+					mcp.Required(),
+					mcp.Description("Category: conventions, subsystems, or decisions"),
+				),
+				mcp.WithString("summary",
+					mcp.Required(),
+					mcp.Description("One-line description (max 100 chars)"),
+				),
+				mcp.WithString("detail",
+					mcp.Required(),
+					mcp.Description("Concise knowledge (10-20 lines). Summarize key facts, don't copy source files. Include only query-able information."),
+				),
+				mcp.WithString("source",
+					mcp.Required(),
+					mcp.Description("How this was learned (provenance)"),
+				),
 			),
-			mcp.WithString("category",
-				mcp.Required(),
-				mcp.Description("Category: conventions, subsystems, or decisions"),
-			),
-			mcp.WithString("summary",
-				mcp.Required(),
-				mcp.Description("One-line description (max 100 chars)"),
-			),
-			mcp.WithString("detail",
-				mcp.Required(),
-				mcp.Description("Full knowledge content (markdown supported)"),
-			),
-			mcp.WithString("confidence",
-				mcp.Required(),
-				mcp.Description("Confidence level: high, medium, or low"),
-			),
-			mcp.WithString("source",
-				mcp.Required(),
-				mcp.Description("How this was learned (provenance)"),
-			),
-		),
-		tools.WriteHandler(resolver, idx),
-	)
+			tools.WriteHandler(resolver, idx),
+		)
 
 	s.AddTool(
 		mcp.NewTool("query_knowledge",
-			mcp.WithDescription("Search knowledge entries by text, category, and confidence"),
+			mcp.WithDescription("Search knowledge entries by text and category"),
 			mcp.WithString("project",
 				mcp.Required(),
 				mcp.Description("Project name (bare if unique, else root/project)"),
@@ -133,12 +129,6 @@ func main() {
 			),
 			mcp.WithString("category",
 				mcp.Description("Filter by category: conventions, subsystems, or decisions"),
-			),
-			mcp.WithString("confidence",
-				mcp.Description("Filter by confidence: high, medium, or low"),
-			),
-			mcp.WithString("stale",
-				mcp.Description("Filter by staleness: true for stale only, false for fresh only"),
 			),
 			mcp.WithNumber("limit",
 				mcp.Description("Max results (default 10)"),
@@ -158,7 +148,7 @@ func main() {
 				mcp.Description("Filter by category: conventions, subsystems, or decisions"),
 			),
 		),
-		tools.ListHandler(resolver),
+		tools.ListHandler(resolver, idx),
 	)
 
 	s.AddTool(
@@ -182,9 +172,6 @@ func main() {
 			mcp.WithString("detail",
 				mcp.Description("New detail (optional)"),
 			),
-			mcp.WithString("confidence",
-				mcp.Description("New confidence level (optional)"),
-			),
 			mcp.WithString("supersedes",
 				mcp.Description("ID of entry this supersedes (optional)"),
 			),
@@ -201,25 +188,6 @@ func main() {
 			tools.ListProjectsHandler(resolver),
 		)
 	}
-
-	s.AddTool(
-		mcp.NewTool("verify_knowledge",
-			mcp.WithDescription("Mark a knowledge entry as verified, extending its expiry"),
-			mcp.WithString("project",
-				mcp.Required(),
-				mcp.Description("Project name (bare if unique, else root/project)"),
-			),
-			mcp.WithString("category",
-				mcp.Required(),
-				mcp.Description("Category: conventions, subsystems, or decisions"),
-			),
-			mcp.WithString("id",
-				mcp.Required(),
-				mcp.Description("Entry ID to verify (e.g., conv-001)"),
-			),
-		),
-		tools.VerifyHandler(resolver),
-	)
 
 	// Graceful shutdown on SIGTERM/SIGINT
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -262,11 +230,10 @@ func indexProjectKnowledge(projectPath, projectName string, idx *search.Index) {
 		}
 		for _, entry := range kf.Entries {
 			doc := search.SearchDocument{
-				Summary:    entry.Summary,
-				Detail:     entry.Detail,
-				Category:   cat,
-				Confidence: entry.Confidence,
-				Project:    projectName,
+				Summary:  entry.Summary,
+				Detail:   entry.Detail,
+				Category: cat,
+				Project:  projectName,
 			}
 			if addErr := idx.Add(projectName+"/"+entry.ID, doc); addErr != nil {
 				log.Printf("warning: failed to index %s/%s: %v", projectName, entry.ID, addErr)
