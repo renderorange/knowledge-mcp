@@ -4,14 +4,16 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/renderorange/agents_knowledge/knowledge"
 	"github.com/renderorange/agents_knowledge/projects"
+	"github.com/renderorange/agents_knowledge/search"
 )
 
 // ListHandler handles the list_knowledge MCP tool.
-func ListHandler(res *projects.Resolver) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func ListHandler(res *projects.Resolver, idx *search.Index) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		project, err := request.RequireString("project")
 		if err != nil {
@@ -22,11 +24,26 @@ func ListHandler(res *projects.Resolver) func(context.Context, mcp.CallToolReque
 		if resolveErr != nil {
 			return mcp.NewToolResultError(resolveErr.Error()), nil
 		}
+
+		// For org roots, use the index to list entries
 		if ref.Kind == projects.KindOrg {
-			return mcp.NewToolResultError(fmt.Sprintf(
-				"%q is an org root; org-level knowledge is file-based — edit %s/.agents/knowledge/ directly",
-				project, ref.Path)), nil
+			results, queryErr := idx.Query(ref.Address, "", "", 100)
+			if queryErr != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("search error: %v", queryErr)), nil
+			}
+			if len(results) == 0 {
+				return mcp.NewToolResultText("no knowledge entries found"), nil
+			}
+
+			output := fmt.Sprintf("## org-level knowledge (%d entries)\n\n", len(results))
+			for _, r := range results {
+				// Strip org prefix from ID for display
+				id := strings.TrimPrefix(r.ID, "org-")
+				output += fmt.Sprintf("- [%s] %s\n", id, r.Summary)
+			}
+			return mcp.NewToolResultText(output), nil
 		}
+
 		projectPath := ref.Path
 
 		filterCategory := request.GetString("category", "")
@@ -59,8 +76,8 @@ func ListHandler(res *projects.Resolver) func(context.Context, mcp.CallToolReque
 
 			output += fmt.Sprintf("## %s (%d entries)\n", cat, len(kf.Entries))
 			for _, entry := range kf.Entries {
-				output += fmt.Sprintf("- [%s] %s (confidence: %s, date: %s)\n",
-					entry.ID, entry.Summary, entry.Confidence, entry.Date)
+				output += fmt.Sprintf("- [%s] %s (date: %s)\n",
+					entry.ID, entry.Summary, entry.Date)
 			}
 			output += "\n"
 		}

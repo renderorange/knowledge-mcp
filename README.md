@@ -1,4 +1,4 @@
-# agents_knowledge
+# knowledge-mcp
 
 An MCP server for persistent agent knowledge. Agents query and write structured knowledge about projects — conventions, subsystem understanding, and design decisions — without re-reading source files every time.
 

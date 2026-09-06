@@ -68,12 +68,11 @@ func TestLoadSaveRoundtrip(t *testing.T) {
 		Version: 1,
 		Entries: []Entry{
 			{
-				ID:         "conv-001",
-				Summary:    "Test entry",
-				Detail:     "Some detail",
-				Confidence: "high",
-				Source:     "test",
-				Date:       "2026-09-04",
+				ID:      "conv-001",
+				Summary: "Test entry",
+				Detail:  "Some detail",
+				Source:  "test",
+				Date:    "2026-09-04",
 			},
 		},
 	}
@@ -133,12 +132,6 @@ func TestValidationHelpers(t *testing.T) {
 	}
 	if IsValidCategory("invalid") {
 		t.Error("invalid should not be valid")
-	}
-	if !IsValidConfidence("high") {
-		t.Error("high should be valid confidence")
-	}
-	if IsValidConfidence("maybe") {
-		t.Error("maybe should not be valid confidence")
 	}
 	if CategoryPrefix("conventions") != "conv" {
 		t.Errorf("prefix = %q, want %q", CategoryPrefix("conventions"), "conv")

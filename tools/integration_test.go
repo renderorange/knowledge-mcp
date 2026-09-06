@@ -48,12 +48,11 @@ func TestEndToEnd(t *testing.T) {
 	writeHandler := WriteHandler(resolver, idx)
 	writeReq := mcp.CallToolRequest{}
 	writeReq.Params.Arguments = map[string]interface{}{
-		"project":    projectName,
-		"category":   "conventions",
-		"summary":    "Build with make test",
-		"detail":     "Run make test before committing. Also make test-stability and make lint.",
-		"confidence": "high",
-		"source":     ".agents/knowledge/architecture.md",
+		"project":  projectName,
+		"category": "conventions",
+		"summary":  "Build with make test",
+		"detail":   "Run make test before committing. Also make test-stability and make lint.",
+		"source":   ".agents/knowledge/architecture.md",
 	}
 	writeResult, err := writeHandler(context.Background(), writeReq)
 	if err != nil {
@@ -66,12 +65,11 @@ func TestEndToEnd(t *testing.T) {
 	// Step 3: Write subsystem
 	writeReq2 := mcp.CallToolRequest{}
 	writeReq2.Params.Arguments = map[string]interface{}{
-		"project":    projectName,
-		"category":   "subsystems",
-		"summary":    "Reverb uses Schroeder allpass",
-		"detail":     "The reverb engine uses a Schroeder allpass chain with 2048-sample buffer.",
-		"confidence": "high",
-		"source":     "code analysis",
+		"project":  projectName,
+		"category": "subsystems",
+		"summary":  "Reverb uses Schroeder allpass",
+		"detail":   "The reverb engine uses a Schroeder allpass chain with 2048-sample buffer.",
+		"source":   "code analysis",
 	}
 	writeResult2, err := writeHandler(context.Background(), writeReq2)
 	if err != nil {
@@ -84,12 +82,11 @@ func TestEndToEnd(t *testing.T) {
 	// Step 4: Write decision
 	writeReq3 := mcp.CallToolRequest{}
 	writeReq3.Params.Arguments = map[string]interface{}{
-		"project":    projectName,
-		"category":   "decisions",
-		"summary":    "Sag floor 2.0V",
-		"detail":     "The sag floor is pinned at 2.0V to keep analog sag audible at starve >= 9.5.",
-		"confidence": "medium",
-		"source":     "adversarial analysis",
+		"project":  projectName,
+		"category": "decisions",
+		"summary":  "Sag floor 2.0V",
+		"detail":   "The sag floor is pinned at 2.0V to keep analog sag audible at starve >= 9.5.",
+		"source":   "adversarial analysis",
 	}
 	writeResult3, err := writeHandler(context.Background(), writeReq3)
 	if err != nil {
@@ -157,7 +154,7 @@ func TestEndToEnd(t *testing.T) {
 	}
 
 	// Step 7: List, verify output contains entries
-	listHandler := ListHandler(resolver)
+	listHandler := ListHandler(resolver, idx)
 	listReq := mcp.CallToolRequest{}
 	listReq.Params.Arguments = map[string]interface{}{
 		"project": projectName,
@@ -185,10 +182,10 @@ func TestEndToEnd(t *testing.T) {
 	updateHandler := UpdateHandler(resolver, idx)
 	updateReq := mcp.CallToolRequest{}
 	updateReq.Params.Arguments = map[string]interface{}{
-		"project":    projectName,
-		"category":   "decisions",
-		"id":         "dec-001",
-		"confidence": "high",
+		"project":  projectName,
+		"category": "decisions",
+		"id":       "dec-001",
+		"summary":  "Updated sag floor",
 	}
 	updateResult, err := updateHandler(context.Background(), updateReq)
 	if err != nil {
@@ -201,8 +198,8 @@ func TestEndToEnd(t *testing.T) {
 	// Verify update persisted and date refreshed
 	agentsDir := filepath.Join(dir, ".agents")
 	loaded, _ := knowledge.Load(knowledge.CategoryFilePath(agentsDir, "decisions"))
-	if loaded.Entries[0].Confidence != "high" {
-		t.Errorf("confidence = %q, want %q", loaded.Entries[0].Confidence, "high")
+	if loaded.Entries[0].Summary != "Updated sag floor" {
+		t.Errorf("summary = %q, want %q", loaded.Entries[0].Summary, "Updated sag floor")
 	}
 	if loaded.Entries[0].Date != knowledge.Today() {
 		t.Errorf("date = %q, want %q (should be refreshed on update)", loaded.Entries[0].Date, knowledge.Today())
@@ -247,12 +244,11 @@ func TestOrgWideMode(t *testing.T) {
 	writeHandler := WriteHandler(resolver, idx)
 	req := mcp.CallToolRequest{}
 	req.Params.Arguments = map[string]interface{}{
-		"project":    "projectA",
-		"category":   "conventions",
-		"summary":    "Project A convention",
-		"detail":     "detail",
-		"confidence": "high",
-		"source":     "test",
+		"project":  "projectA",
+		"category": "conventions",
+		"summary":  "Project A convention",
+		"detail":   "detail",
+		"source":   "test",
 	}
 	result, err := writeHandler(context.Background(), req)
 	if err != nil {
@@ -263,7 +259,7 @@ func TestOrgWideMode(t *testing.T) {
 	}
 
 	// List projectA
-	listHandler := ListHandler(resolver)
+	listHandler := ListHandler(resolver, idx)
 	listReq := mcp.CallToolRequest{}
 	listReq.Params.Arguments = map[string]interface{}{"project": "projectA"}
 	listResult, _ := listHandler(context.Background(), listReq)
@@ -326,12 +322,11 @@ func TestFullWorkflow(t *testing.T) {
 	writeHandler := WriteHandler(resolver, idx)
 	writeReq := mcp.CallToolRequest{}
 	writeReq.Params.Arguments = map[string]interface{}{
-		"project":    "app",
-		"category":   "conventions",
-		"summary":    "Use tabs",
-		"detail":     "All files use tabs for indentation",
-		"confidence": "high",
-		"source":     "manual review",
+		"project":  "app",
+		"category": "conventions",
+		"summary":  "Use tabs",
+		"detail":   "All files use tabs for indentation",
+		"source":   "manual review",
 	}
 	writeResult, err := writeHandler(context.Background(), writeReq)
 	if err != nil {
@@ -342,29 +337,12 @@ func TestFullWorkflow(t *testing.T) {
 		t.Fatalf("write failed: %s", writeText)
 	}
 
-	// 3. Verify entry
-	verifyHandler := VerifyHandler(resolver)
-	verifyReq := mcp.CallToolRequest{}
-	verifyReq.Params.Arguments = map[string]interface{}{
-		"project":  "app",
-		"category": "conventions",
-		"id":       "conv-001",
-	}
-	verifyResult, err := verifyHandler(context.Background(), verifyReq)
-	if err != nil {
-		t.Fatalf("verify error: %v", err)
-	}
-	verifyText := extractTextContent(t, verifyResult)
-	if !strings.Contains(verifyText, "verified conv-001") {
-		t.Fatalf("verify failed: %s", verifyText)
-	}
-
-	// 4. Query with staleness filter (stale=false should return the fresh entry)
+	// 3. Query
 	queryHandler := QueryHandler(resolver, idx)
 	queryReq := mcp.CallToolRequest{}
 	queryReq.Params.Arguments = map[string]interface{}{
 		"project": "app",
-		"stale":   "false",
+		"query":   "tabs",
 	}
 	queryResult, err := queryHandler(context.Background(), queryReq)
 	if err != nil {
@@ -372,7 +350,7 @@ func TestFullWorkflow(t *testing.T) {
 	}
 	queryText := extractTextContent(t, queryResult)
 	if !strings.Contains(queryText, "conv-001") {
-		t.Fatalf("query with stale=false failed: %s", queryText)
+		t.Fatalf("query failed: %s", queryText)
 	}
 }
 
