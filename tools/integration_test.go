@@ -19,7 +19,7 @@ func TestEndToEnd(t *testing.T) {
 	dir := t.TempDir()
 	projectName := filepath.Base(dir)
 
-	resolver, _, err := projects.Build(nil, []string{dir})
+	resolver, _, err := projects.Build(nil, []string{dir}, "")
 	if err != nil {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestOrgWideMode(t *testing.T) {
 	knowledge.EnsureDir(filepath.Join(projA, ".agents"))
 	knowledge.EnsureDir(filepath.Join(projB, ".agents"))
 
-	resolver, _, err := projects.Build([]string{orgDir}, nil)
+	resolver, _, err := projects.Build([]string{orgDir}, nil, "")
 	if err != nil {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestFullWorkflow(t *testing.T) {
 		os.WriteFile(filepath.Join(agentsDir, "_meta.yaml"), data, 0644)
 	}
 
-	resolver, _, err := projects.Build([]string{orgRoot}, nil)
+	resolver, _, err := projects.Build([]string{orgRoot}, nil, "")
 	if err != nil {
 		t.Fatalf("projects.Build() error: %v", err)
 	}

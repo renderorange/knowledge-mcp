@@ -3,6 +3,7 @@ package search
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -30,6 +31,7 @@ type indexMeta struct {
 type SearchDocument struct {
 	Summary  string `json:"summary"`
 	Detail   string `json:"detail"`
+	Rule     string `json:"rule"`
 	Category string `json:"category"`
 	Project  string `json:"project"`
 }
@@ -40,6 +42,7 @@ type SearchResult struct {
 	ID       string  `json:"id"`
 	Summary  string  `json:"summary"`
 	Detail   string  `json:"detail"`
+	Rule     string  `json:"rule,omitempty"`
 	Category string  `json:"category"`
 	Score    float64 `json:"score"`
 	Project  string  `json:"project"`
@@ -78,7 +81,15 @@ func NewIndex(indexPath string, indexNames []string) (*Index, error) {
 	} else {
 		idx, err = bleve.Open(indexPath)
 		if err != nil {
-			return nil, fmt.Errorf("open index: %w", err)
+			// Index corrupted — rebuild from scratch
+			log.Printf("warning: index corrupted (%v), rebuilding", err)
+			if rmErr := DeleteIndex(indexPath); rmErr != nil {
+				return nil, fmt.Errorf("remove corrupted index: %w", rmErr)
+			}
+			idx, err = bleve.New(indexPath, mapping)
+			if err != nil {
+				return nil, fmt.Errorf("create index after corruption: %w", err)
+			}
 		}
 	}
 
@@ -119,7 +130,7 @@ func metaStale(indexPath string, indexNames []string) bool {
 func indexMapping() mapping.IndexMapping {
 	im := bleve.NewIndexMapping()
 	doc := bleve.NewDocumentMapping()
-	for _, f := range []string{"summary", "detail"} {
+	for _, f := range []string{"summary", "detail", "rule"} {
 		fm := bleve.NewTextFieldMapping()
 		doc.AddFieldMappingsAt(f, fm)
 	}
@@ -174,7 +185,7 @@ func (i *Index) Query(project, q, category string, limit int) ([]SearchResult, e
 
 	req := bleve.NewSearchRequest(finalQuery)
 	req.Size = limit
-	req.Fields = []string{"summary", "detail", "category", "project"}
+	req.Fields = []string{"summary", "detail", "rule", "category", "project"}
 
 	result, err := i.index.Search(req)
 	if err != nil {
@@ -198,6 +209,9 @@ func (i *Index) Query(project, q, category string, limit int) ([]SearchResult, e
 		}
 		if v, ok := hit.Fields["detail"].(string); ok {
 			r.Detail = v
+		}
+		if v, ok := hit.Fields["rule"].(string); ok {
+			r.Rule = v
 		}
 		if v, ok := hit.Fields["category"].(string); ok {
 			r.Category = v

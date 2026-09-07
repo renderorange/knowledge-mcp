@@ -19,7 +19,12 @@ const (
 	KindProject Kind = iota
 	// KindOrg is an org root with .agents/knowledge/ files.
 	KindOrg
+	// KindGlobal is a global knowledge store shared across all projects.
+	KindGlobal
 )
+
+// GlobalAddress is the addressing name for the global knowledge store.
+const GlobalAddress = "_global"
 
 // Ref is one addressable project or org root.
 type Ref struct {
@@ -44,13 +49,14 @@ type Resolver struct {
 	byPath    map[string]Ref
 	roots     []string
 	explicit  []string
+	global    string // path to global knowledge store (empty if none)
 }
 
-// Build constructs a resolver from org roots and explicit project paths.
-// It returns startup warnings for ambiguous names and path overlaps.
-// It returns an error for unresolvable configurations: nonexistent or
-// non-directory paths, empty values, and duplicate root basenames.
-func Build(roots, projects []string) (*Resolver, []string, error) {
+// Build constructs a resolver from org roots, explicit project paths, and an
+// optional global knowledge path. It returns startup warnings for ambiguous
+// names and path overlaps. It returns an error for unresolvable configurations:
+// nonexistent or non-directory paths, empty values, and duplicate root basenames.
+func Build(roots, projects []string, global string) (*Resolver, []string, error) {
 	var warnings []string
 
 	rootPaths, err := canonicalAll(roots, "root")
@@ -113,12 +119,39 @@ func Build(roots, projects []string) (*Resolver, []string, error) {
 		}
 	}
 
+	// Validate and add global knowledge store if provided.
+	var globalRef *Ref
+	if global != "" {
+		abs, err := filepath.Abs(global)
+		if err != nil {
+			return nil, nil, fmt.Errorf("global %q: %w", global, err)
+		}
+		info, err := os.Stat(abs)
+		if err != nil {
+			return nil, nil, fmt.Errorf("global %q: does not exist", global)
+		}
+		if !info.IsDir() {
+			return nil, nil, fmt.Errorf("global %q: not a directory", global)
+		}
+		resolved, err := filepath.EvalSymlinks(abs)
+		if err != nil {
+			return nil, nil, fmt.Errorf("global %q: %w", global, err)
+		}
+		globalRef = &Ref{
+			Name:    GlobalAddress,
+			Path:    resolved,
+			Kind:    KindGlobal,
+			Address: GlobalAddress,
+		}
+	}
+
 	r := &Resolver{
 		byAddress: map[string]Ref{},
 		byBare:    map[string][]Ref{},
 		byPath:    map[string]Ref{},
 		roots:     rootPaths,
 		explicit:  projPaths,
+		global:    global,
 	}
 
 	// Dedupe by path; project kind wins over org kind.
@@ -137,6 +170,17 @@ func Build(roots, projects []string) (*Resolver, []string, error) {
 		r.refs = append(r.refs, ref)
 	}
 
+	// Add global ref if provided and not already covered by a project.
+	if globalRef != nil {
+		if _, exists := r.byPath[globalRef.Path]; !exists {
+			r.refs = append(r.refs, *globalRef)
+			r.byPath[globalRef.Path] = *globalRef
+		} else {
+			warnings = append(warnings, fmt.Sprintf(
+				"global path %s is already a known project; skipping as global", globalRef.Path))
+		}
+	}
+
 	// Compute addressing names. Org roots always keep their bare name
 	// (root basenames are unique); projects qualify when their bare name
 	// is claimed by more than one ref.
@@ -149,6 +193,8 @@ func Build(roots, projects []string) (*Resolver, []string, error) {
 		switch {
 		case ref.Kind == KindOrg:
 			ref.Address = ref.Name
+		case ref.Kind == KindGlobal:
+			// Global ref keeps its fixed address.
 		case nameCount[ref.Name] == 1:
 			ref.Address = ref.Name
 		default:
@@ -230,6 +276,15 @@ func (r *Resolver) KnownNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// GlobalRef returns the global knowledge ref, or false if none is configured.
+func (r *Resolver) GlobalRef() (Ref, bool) {
+	if r.global == "" {
+		return Ref{}, false
+	}
+	ref, ok := r.byAddress[GlobalAddress]
+	return ref, ok
 }
 
 // Snapshot returns all refs sorted by addressing name.

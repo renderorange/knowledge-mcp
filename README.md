@@ -76,7 +76,7 @@ Repeat `--root` and `--project` as needed; they can be mixed:
 | `init_knowledge` | Create `.agents/` directory structure for a project |
 | `write_knowledge` | Add a new knowledge entry |
 | `query_knowledge` | Full-text search with category/confidence filters |
-| `list_knowledge` | List all entries (summaries only) |
+| `list_knowledge` | List all entries; entries with rules shown first as constraints |
 | `update_knowledge` | Update an existing entry by ID |
 
 ## Knowledge File Format
@@ -87,6 +87,19 @@ Entries are stored in `<project>/.agents/<category>.yaml`:
 - `subsystems.yaml` — how things work
 - `decisions.yaml` — why choices were made
 - `_meta.yaml` — project metadata
+
+### Rules / Constraints
+
+Entries can include an optional `rule` field — an imperative statement of what's forbidden or required (e.g. `"Never create files outside ./tmp"`). `list_knowledge` surfaces entries with rules in a separate `## constraints` section above regular entries, so agents see hard rules immediately without needing to query detail.
+
+```yaml
+- id: conv-001
+  summary: Tmp directory rules and session workflow
+  detail: "All project docs go in ./tmp/docs/..."
+  rule: "NEVER create files outside ./tmp; all docs go in ./tmp/docs/ only"
+  source: "user preference"
+  date: "2026-09-08"
+```
 
 ## Agent Configuration
 

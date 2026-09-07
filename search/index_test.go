@@ -1,6 +1,7 @@
 package search
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -218,6 +219,64 @@ func TestIndexEmptyQuery(t *testing.T) {
 	results, err := idx.Query("test", "", "", 10)
 	if err != nil {
 		t.Fatalf("Query() error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("len(results) = %d, want 1", len(results))
+	}
+}
+
+func TestIndexRecoverFromCorruption(t *testing.T) {
+	dir := t.TempDir()
+	indexPath := filepath.Join(dir, "test.bleve")
+
+	// Create index and add a document
+	idx := newIndex(t, indexPath, []string{"test"})
+	if err := idx.Add("test/conv-001", SearchDocument{
+		Summary: "original doc", Project: "test",
+	}); err != nil {
+		t.Fatalf("Add() error: %v", err)
+	}
+	idx.Close()
+
+	// Corrupt the index by deleting a segment file
+	storeDir := filepath.Join(indexPath, "store")
+	entries, err := os.ReadDir(storeDir)
+	if err != nil {
+		t.Fatalf("ReadDir(%s) error: %v", storeDir, err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("no files in store directory")
+	}
+	// Delete the first segment file to corrupt the index
+	for _, e := range entries {
+		if e.Name() != "root.bolt" {
+			os.Remove(filepath.Join(storeDir, e.Name()))
+			break
+		}
+	}
+
+	// Opening should recover from corruption, not fail
+	idx2 := newIndex(t, indexPath, []string{"test"})
+	defer idx2.Close()
+
+	// Old data is gone (rebuilt), but server should work
+	results, err := idx2.Query("test", "", "", 10)
+	if err != nil {
+		t.Fatalf("Query() after recovery error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("len(results) = %d, want 0 (old data should be gone after rebuild)", len(results))
+	}
+
+	// Can add new data after recovery
+	if err := idx2.Add("test/conv-002", SearchDocument{
+		Summary: "new doc after recovery", Project: "test",
+	}); err != nil {
+		t.Fatalf("Add() after recovery error: %v", err)
+	}
+	results, err = idx2.Query("test", "recovery", "", 10)
+	if err != nil {
+		t.Fatalf("Query() after recovery error: %v", err)
 	}
 	if len(results) != 1 {
 		t.Errorf("len(results) = %d, want 1", len(results))
