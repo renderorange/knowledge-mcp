@@ -19,7 +19,7 @@ func mkdir(t *testing.T, path ...string) string {
 func TestBuildSingleProject(t *testing.T) {
 	dir := mkdir(t, t.TempDir(), "myproj")
 
-	res, warnings, err := Build(nil, []string{dir})
+	res, warnings, err := Build(nil, []string{dir}, "")
 	if err != nil {
 		t.Fatalf("Build() error: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestBuildSingleRootDiscovery(t *testing.T) {
 	mkdir(t, root, "alpha")
 	mkdir(t, root, "beta")
 
-	res, _, err := Build([]string{root}, nil)
+	res, _, err := Build([]string{root}, nil, "")
 	if err != nil {
 		t.Fatalf("Build() error: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestAmbiguousBasenameQualifiedResolution(t *testing.T) {
 	mkdir(t, r1, "api")
 	mkdir(t, r2, "api")
 
-	res, warnings, err := Build([]string{r1, r2}, nil)
+	res, warnings, err := Build([]string{r1, r2}, nil, "")
 	if err != nil {
 		t.Fatalf("Build() error: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestRootsSameBasenameHardError(t *testing.T) {
 	a := mkdir(t, t.TempDir(), "code")
 	b := mkdir(t, t.TempDir(), "code")
 
-	_, _, err := Build([]string{a, b}, nil)
+	_, _, err := Build([]string{a, b}, nil, "")
 	if err == nil {
 		t.Fatal("two roots named \"code\" should be a hard error")
 	}
@@ -126,18 +126,18 @@ func TestRootsSameBasenameHardError(t *testing.T) {
 func TestBuildValidationErrors(t *testing.T) {
 	tmp := t.TempDir()
 
-	if _, _, err := Build([]string{filepath.Join(tmp, "missing")}, nil); err == nil {
+	if _, _, err := Build([]string{filepath.Join(tmp, "missing")}, nil, ""); err == nil {
 		t.Error("nonexistent root should error")
 	}
 	file := filepath.Join(tmp, "afile")
 	os.WriteFile(file, []byte("x"), 0644)
-	if _, _, err := Build([]string{file}, nil); err == nil {
+	if _, _, err := Build([]string{file}, nil, ""); err == nil {
 		t.Error("file root should error")
 	}
-	if _, _, err := Build([]string{""}, nil); err == nil {
+	if _, _, err := Build([]string{""}, nil, ""); err == nil {
 		t.Error("empty root should error")
 	}
-	if _, _, err := Build(nil, []string{filepath.Join(tmp, "missing")}); err == nil {
+	if _, _, err := Build(nil, []string{filepath.Join(tmp, "missing")}, ""); err == nil {
 		t.Error("nonexistent project should error")
 	}
 }
@@ -147,7 +147,7 @@ func TestNestedRootsAndDuplicates(t *testing.T) {
 	inner := mkdir(t, outer, "inner")
 	mkdir(t, inner, "deep")
 
-	res, warnings, err := Build([]string{outer, inner}, nil)
+	res, warnings, err := Build([]string{outer, inner}, nil, "")
 	if err != nil {
 		t.Fatalf("Build() error: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestNestedRootsAndDuplicates(t *testing.T) {
 	}
 
 	// Duplicate root paths dedupe with exactly one warning.
-	res2, warnings2, err := Build([]string{outer, outer}, nil)
+	res2, warnings2, err := Build([]string{outer, outer}, nil, "")
 	if err != nil {
 		t.Fatalf("Build() error: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestSymlinkedProjectDiscovered(t *testing.T) {
 		t.Skip("symlinks unavailable")
 	}
 
-	res, _, err := Build([]string{root}, nil)
+	res, _, err := Build([]string{root}, nil, "")
 	if err != nil {
 		t.Fatalf("Build() error: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestOrgRefAndProjectSharingRootName(t *testing.T) {
 	other := mkdir(t, t.TempDir(), "other")
 	mkdir(t, other, "org") // project basename collides with root basename
 
-	res, warnings, err := Build([]string{root, other}, nil)
+	res, warnings, err := Build([]string{root, other}, nil, "")
 	if err != nil {
 		t.Fatalf("Build() error: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestOrgRefAndProjectSharingRootName(t *testing.T) {
 
 func TestDynamicResolveNewProjectUnderRoot(t *testing.T) {
 	root := t.TempDir()
-	res, _, err := Build([]string{root}, nil)
+	res, _, err := Build([]string{root}, nil, "")
 	if err != nil {
 		t.Fatalf("Build() error: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestDynamicResolveNewProjectUnderRoot(t *testing.T) {
 func TestCovers(t *testing.T) {
 	root := t.TempDir()
 	explicit := mkdir(t, t.TempDir(), "explicit")
-	res, _, err := Build([]string{root}, []string{explicit})
+	res, _, err := Build([]string{root}, []string{explicit}, "")
 	if err != nil {
 		t.Fatalf("Build() error: %v", err)
 	}
@@ -263,5 +263,118 @@ func TestCovers(t *testing.T) {
 	}
 	if res.Covers(mkdir(t, t.TempDir(), "elsewhere")) {
 		t.Error("unrelated path should not be covered")
+	}
+}
+
+func TestBuildWithGlobal(t *testing.T) {
+	globalDir := mkdir(t, t.TempDir(), "global-knowledge")
+	projDir := mkdir(t, t.TempDir(), "myproj")
+
+	res, warnings, err := Build(nil, []string{projDir}, globalDir)
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("warnings = %v, want none", warnings)
+	}
+
+	// Global ref should be resolvable
+	ref, err := res.Resolve("_global")
+	if err != nil {
+		t.Fatalf("Resolve(_global) error: %v", err)
+	}
+	if ref.Kind != KindGlobal {
+		t.Errorf("Kind = %v, want KindGlobal", ref.Kind)
+	}
+	if ref.Address != "_global" {
+		t.Errorf("Address = %q, want %q", ref.Address, "_global")
+	}
+	if ref.Path != globalDir {
+		t.Errorf("Path = %q, want %q", ref.Path, globalDir)
+	}
+
+	// GlobalRef should return the ref
+	globalRef, ok := res.GlobalRef()
+	if !ok {
+		t.Fatal("GlobalRef() returned false")
+	}
+	if globalRef.Address != "_global" {
+		t.Errorf("GlobalRef().Address = %q, want %q", globalRef.Address, "_global")
+	}
+
+	// KnownNames should include _global
+	names := res.KnownNames()
+	found := false
+	for _, n := range names {
+		if n == "_global" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("KnownNames() = %v, want _global included", names)
+	}
+}
+
+func TestBuildWithGlobalNonexistent(t *testing.T) {
+	_, _, err := Build(nil, nil, "/nonexistent/path")
+	if err == nil {
+		t.Fatal("nonexistent global path should error")
+	}
+}
+
+func TestBuildWithGlobalAndNoProjects(t *testing.T) {
+	globalDir := mkdir(t, t.TempDir(), "global")
+
+	res, _, err := Build(nil, nil, globalDir)
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+
+	ref, err := res.Resolve("_global")
+	if err != nil {
+		t.Fatalf("Resolve(_global) error: %v", err)
+	}
+	if ref.Kind != KindGlobal {
+		t.Errorf("Kind = %v, want KindGlobal", ref.Kind)
+	}
+}
+
+func TestBuildWithGlobalDuplicatePath(t *testing.T) {
+	// If the global path is also a project, warn and skip global
+	projDir := mkdir(t, t.TempDir(), "myproj")
+
+	res, warnings, err := Build(nil, []string{projDir}, projDir)
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+
+	found := false
+	for _, w := range warnings {
+		if strings.Contains(w, "already a known project") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected warning about duplicate global path, got %v", warnings)
+	}
+
+	// The project should still be resolvable
+	_, err = res.Resolve("myproj")
+	if err != nil {
+		t.Fatalf("Resolve(myproj) error: %v", err)
+	}
+}
+
+func TestGlobalRefNone(t *testing.T) {
+	projDir := mkdir(t, t.TempDir(), "myproj")
+
+	res, _, err := Build(nil, []string{projDir}, "")
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+
+	_, ok := res.GlobalRef()
+	if ok {
+		t.Error("GlobalRef() should return false when no global is configured")
 	}
 }

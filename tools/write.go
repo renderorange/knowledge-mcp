@@ -53,6 +53,11 @@ func WriteHandler(res *projects.Resolver, idx *search.Index) func(context.Contex
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
+		rule := request.GetString("rule", "")
+		if len(rule) > 200 {
+			return mcp.NewToolResultError(fmt.Sprintf("rule too long: %d chars (max 200)", len(rule))), nil
+		}
+
 		ref, resolveErr := res.Resolve(project)
 		if resolveErr != nil {
 			return mcp.NewToolResultError(resolveErr.Error()), nil
@@ -82,6 +87,7 @@ func WriteHandler(res *projects.Resolver, idx *search.Index) func(context.Contex
 			ID:         id,
 			Summary:    summary,
 			Detail:     detail,
+			Rule:       rule,
 			Source:     source,
 			Date:       knowledge.Today(),
 		}
@@ -97,6 +103,7 @@ func WriteHandler(res *projects.Resolver, idx *search.Index) func(context.Contex
 			doc := search.SearchDocument{
 				Summary:  summary,
 				Detail:   detail,
+				Rule:     rule,
 				Category: category,
 				Project:  ref.Address,
 			}

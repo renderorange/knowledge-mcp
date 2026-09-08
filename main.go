@@ -39,17 +39,18 @@ func (p *pathList) Set(v string) error {
 func main() {
 	var roots pathList
 	var projs pathList
+	globalPath := flag.String("global", "", "Path to a global knowledge store shared across all projects")
 	indexOverride := flag.String("index", "", "Override the search index location")
 	flag.Var(&roots, "root", "Org root whose immediate children are projects (repeatable)")
 	flag.Var(&projs, "project", "Single project root (repeatable)")
 	flag.Parse()
 
-	if len(roots) == 0 && len(projs) == 0 {
-		fmt.Fprintln(os.Stderr, "error: at least one --project or --root is required")
+	if len(roots) == 0 && len(projs) == 0 && *globalPath == "" {
+		fmt.Fprintln(os.Stderr, "error: at least one --project, --root, or --global is required")
 		os.Exit(1)
 	}
 
-	resolver, warnings, err := projects.Build([]string(roots), []string(projs))
+	resolver, warnings, err := projects.Build([]string(roots), []string(projs), *globalPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -113,6 +114,9 @@ func main() {
 					mcp.Required(),
 					mcp.Description("How this was learned (provenance)"),
 				),
+				mcp.WithString("rule",
+					mcp.Description("Imperative constraint this entry enforces (e.g. \"Never create files outside ./tmp\"). Shown prominently in list output. Max 200 chars."),
+				),
 			),
 			tools.WriteHandler(resolver, idx),
 		)
@@ -139,7 +143,7 @@ func main() {
 
 	s.AddTool(
 		mcp.NewTool("list_knowledge",
-			mcp.WithDescription("List all knowledge entries for a project (summaries only)"),
+			mcp.WithDescription("List all knowledge entries for a project. Entries with a rule are shown first under constraints."),
 			mcp.WithString("project",
 				mcp.Required(),
 				mcp.Description("Project name (bare if unique, else root/project)"),
@@ -171,6 +175,9 @@ func main() {
 			),
 			mcp.WithString("detail",
 				mcp.Description("New detail (optional)"),
+			),
+			mcp.WithString("rule",
+				mcp.Description("New imperative rule (optional, max 200 chars)"),
 			),
 			mcp.WithString("supersedes",
 				mcp.Description("ID of entry this supersedes (optional)"),
@@ -214,6 +221,8 @@ func indexAll(res *projects.Resolver, idx *search.Index) {
 			indexProjectKnowledge(ref.Path, ref.Address, idx)
 		case projects.KindOrg:
 			indexOrgKnowledge(ref.Path, ref.Name, idx)
+		case projects.KindGlobal:
+			indexProjectKnowledge(ref.Path, ref.Address, idx)
 		}
 	}
 }
@@ -232,6 +241,7 @@ func indexProjectKnowledge(projectPath, projectName string, idx *search.Index) {
 			doc := search.SearchDocument{
 				Summary:  entry.Summary,
 				Detail:   entry.Detail,
+				Rule:     entry.Rule,
 				Category: cat,
 				Project:  projectName,
 			}

@@ -18,7 +18,7 @@ import (
 func TestInitHandler(t *testing.T) {
 	dir := t.TempDir()
 
-	resolver, _, err := projects.Build(nil, []string{dir})
+	resolver, _, err := projects.Build(nil, []string{dir}, "")
 	if err != nil {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestWriteHandler(t *testing.T) {
 	idx, _ := search.NewIndex(indexPath, []string{"test"})
 	defer idx.Close()
 
-	resolver, _, err := projects.Build([]string{root}, nil)
+	resolver, _, err := projects.Build([]string{root}, nil, "")
 	if err != nil {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestWriteHandlerValidation(t *testing.T) {
 	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"),
 		&knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{}})
 
-	resolver, _, err := projects.Build([]string{root}, nil)
+	resolver, _, err := projects.Build([]string{root}, nil, "")
 	if err != nil {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestWriteHandlerDetailSizeLimit(t *testing.T) {
 	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"),
 		&knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{}})
 
-	resolver, _, err := projects.Build([]string{root}, nil)
+	resolver, _, err := projects.Build([]string{root}, nil, "")
 	if err != nil {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestQueryHandler(t *testing.T) {
 	idx, _ := search.NewIndex(indexPath, []string{"test"})
 	defer idx.Close()
 
-	resolver, _, err := projects.Build([]string{root}, nil)
+	resolver, _, err := projects.Build([]string{root}, nil, "")
 	if err != nil {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestListHandler(t *testing.T) {
 	kf := &knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{}}
 	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), kf)
 
-	resolver, _, err := projects.Build([]string{root}, nil)
+	resolver, _, err := projects.Build([]string{root}, nil, "")
 	if err != nil {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestUpdateHandler(t *testing.T) {
 	idx, _ := search.NewIndex(indexPath, []string{"test"})
 	defer idx.Close()
 
-	resolver, _, err := projects.Build([]string{root}, nil)
+	resolver, _, err := projects.Build([]string{root}, nil, "")
 	if err != nil {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
@@ -502,7 +502,7 @@ func TestConcurrentWrites(t *testing.T) {
 	kf := &knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{}}
 	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), kf)
 
-	resolver, _, err := projects.Build([]string{root}, nil)
+	resolver, _, err := projects.Build([]string{root}, nil, "")
 	if err != nil {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
@@ -576,7 +576,7 @@ func TestConcurrentWriteAndUpdate(t *testing.T) {
 	kf := &knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{entry}}
 	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), kf)
 
-	resolver, _, err := projects.Build([]string{root}, nil)
+	resolver, _, err := projects.Build([]string{root}, nil, "")
 	if err != nil {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
@@ -636,7 +636,7 @@ func TestOrgRefWriteGuard(t *testing.T) {
 	root := t.TempDir()
 	knowledge.EnsureDir(filepath.Join(root, ".agents", "knowledge"))
 
-	resolver, _, err := projects.Build([]string{root}, nil)
+	resolver, _, err := projects.Build([]string{root}, nil, "")
 	if err != nil {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
@@ -667,7 +667,7 @@ func TestAmbiguousProjectError(t *testing.T) {
 		knowledge.EnsureDir(filepath.Join(r, "api", ".agents"))
 	}
 
-	resolver, _, err := projects.Build([]string{r1, r2}, nil)
+	resolver, _, err := projects.Build([]string{r1, r2}, nil, "")
 	if err != nil {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
@@ -696,7 +696,7 @@ func TestQueryProjectIsolation(t *testing.T) {
 		knowledge.EnsureDir(filepath.Join(orgDir, p, ".agents"))
 	}
 
-	resolver, _, err := projects.Build([]string{orgDir}, nil)
+	resolver, _, err := projects.Build([]string{orgDir}, nil, "")
 	if err != nil {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
@@ -738,7 +738,7 @@ func TestQueryProjectIsolation(t *testing.T) {
 
 func TestInitHandlerResolvabilityWarning(t *testing.T) {
 	root := t.TempDir()
-	resolver, _, err := projects.Build([]string{root}, nil)
+	resolver, _, err := projects.Build([]string{root}, nil, "")
 	if err != nil {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
@@ -768,5 +768,329 @@ func TestInitHandlerResolvabilityWarning(t *testing.T) {
 	content2 := extractTextContent(t, result2)
 	if strings.Contains(content2, "not under any configured") {
 		t.Errorf("unexpected warning for covered path: %s", content2)
+	}
+}
+
+func TestQueryWithGlobalMerge(t *testing.T) {
+	// Set up a project and a global store (global must be outside root)
+	root := t.TempDir()
+	projDir := filepath.Join(root, "myproj")
+	globalDir := t.TempDir() // separate from root
+	knowledge.EnsureDir(filepath.Join(projDir, ".agents"))
+	knowledge.EnsureDir(filepath.Join(globalDir, ".agents"))
+
+	// Create knowledge files for both
+	projKF := &knowledge.KnowledgeFile{Project: "myproj", Version: 1, Entries: []knowledge.Entry{}}
+	knowledge.Save(knowledge.CategoryFilePath(filepath.Join(projDir, ".agents"), "conventions"), projKF)
+
+	globalKF := &knowledge.KnowledgeFile{Project: "_global", Version: 1, Entries: []knowledge.Entry{}}
+	knowledge.Save(knowledge.CategoryFilePath(filepath.Join(globalDir, ".agents"), "conventions"), globalKF)
+
+	resolver, _, err := projects.Build([]string{root}, nil, globalDir)
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
+
+	indexPath := filepath.Join(root, ".index")
+	idx, err := search.NewIndex(indexPath, []string{"myproj", "_global"})
+	if err != nil {
+		t.Fatalf("search.NewIndex() error: %v", err)
+	}
+	defer idx.Close()
+
+	// Write to project
+	write := WriteHandler(resolver, idx)
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{
+		"project":  "myproj",
+		"category": "conventions",
+		"summary":  "Project convention",
+		"detail":   "project detail",
+		"source":   "test",
+	}
+	result, _ := write(context.Background(), req)
+	if result == nil || result.IsError {
+		t.Fatalf("write to myproj failed: %+v", result)
+	}
+
+	// Write to global
+	globalReq := mcp.CallToolRequest{}
+	globalReq.Params.Arguments = map[string]interface{}{
+		"project":  "_global",
+		"category": "conventions",
+		"summary":  "Global convention",
+		"detail":   "global detail",
+		"source":   "test",
+	}
+	result2, _ := write(context.Background(), globalReq)
+	if result2 == nil || result2.IsError {
+		t.Fatalf("write to _global failed: %+v", result2)
+	}
+
+	// Query project — should include both project and global results
+	query := QueryHandler(resolver, idx)
+	queryReq := mcp.CallToolRequest{}
+	queryReq.Params.Arguments = map[string]interface{}{
+		"project": "myproj",
+	}
+	queryResult, _ := query(context.Background(), queryReq)
+	content := extractTextContent(t, queryResult)
+
+	if !strings.Contains(content, "Project convention") {
+		t.Errorf("project query missing project result: %s", content)
+	}
+	if !strings.Contains(content, "Global convention") {
+		t.Errorf("project query missing global result: %s", content)
+	}
+
+	// Query global directly — should only have global results
+	globalQueryReq := mcp.CallToolRequest{}
+	globalQueryReq.Params.Arguments = map[string]interface{}{
+		"project": "_global",
+	}
+	globalQueryResult, _ := query(context.Background(), globalQueryReq)
+	globalContent := extractTextContent(t, globalQueryResult)
+
+	if strings.Contains(globalContent, "Project convention") {
+		t.Errorf("global query should not include project results: %s", globalContent)
+	}
+	if !strings.Contains(globalContent, "Global convention") {
+		t.Errorf("global query missing global result: %s", globalContent)
+	}
+}
+
+func TestQueryWithoutGlobal(t *testing.T) {
+	// Without --global, querying should work normally (no global merge)
+	root := t.TempDir()
+	projDir := filepath.Join(root, "myproj")
+	knowledge.EnsureDir(filepath.Join(projDir, ".agents"))
+
+	projKF := &knowledge.KnowledgeFile{Project: "myproj", Version: 1, Entries: []knowledge.Entry{}}
+	knowledge.Save(knowledge.CategoryFilePath(filepath.Join(projDir, ".agents"), "conventions"), projKF)
+
+	resolver, _, err := projects.Build([]string{root}, nil, "")
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
+
+	indexPath := filepath.Join(root, ".index")
+	idx, err := search.NewIndex(indexPath, []string{"myproj"})
+	if err != nil {
+		t.Fatalf("search.NewIndex() error: %v", err)
+	}
+	defer idx.Close()
+
+	write := WriteHandler(resolver, idx)
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{
+		"project":  "myproj",
+		"category": "conventions",
+		"summary":  "Project convention",
+		"detail":   "detail",
+		"source":   "test",
+	}
+	write(context.Background(), req)
+
+	query := QueryHandler(resolver, idx)
+	queryReq := mcp.CallToolRequest{}
+	queryReq.Params.Arguments = map[string]interface{}{
+		"project": "myproj",
+	}
+	result, _ := query(context.Background(), queryReq)
+	content := extractTextContent(t, result)
+
+	if !strings.Contains(content, "Project convention") {
+		t.Errorf("query missing project result: %s", content)
+	}
+}
+
+func TestWriteWithRule(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "test")
+	agentsDir := filepath.Join(dir, ".agents")
+	knowledge.EnsureDir(agentsDir)
+
+	kf := &knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{}}
+	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), kf)
+
+	indexPath := filepath.Join(dir, ".index")
+	idx, _ := search.NewIndex(indexPath, []string{"test"})
+	defer idx.Close()
+
+	resolver, _, err := projects.Build([]string{root}, nil, "")
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
+
+	handler := WriteHandler(resolver, idx)
+
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{
+		"project":  "test",
+		"category": "conventions",
+		"summary":  "Tmp directory rules",
+		"detail":   "All docs go in ./tmp/docs/",
+		"rule":     "NEVER create files outside ./tmp",
+		"source":   "test",
+	}
+
+	result, err := handler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("WriteHandler() error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("WriteHandler() returned error: %+v", result)
+	}
+
+	loaded, _ := knowledge.Load(knowledge.CategoryFilePath(agentsDir, "conventions"))
+	if len(loaded.Entries) != 1 {
+		t.Fatalf("len(Entries) = %d, want 1", len(loaded.Entries))
+	}
+	if loaded.Entries[0].Rule != "NEVER create files outside ./tmp" {
+		t.Errorf("Rule = %q, want %q", loaded.Entries[0].Rule, "NEVER create files outside ./tmp")
+	}
+
+	listHandler := ListHandler(resolver, idx)
+	listReq := mcp.CallToolRequest{}
+	listReq.Params.Arguments = map[string]interface{}{"project": "test"}
+	listResult, _ := listHandler(context.Background(), listReq)
+	listContent := extractTextContent(t, listResult)
+
+	if !strings.Contains(listContent, "## constraints") {
+		t.Errorf("list output missing constraints section: %s", listContent)
+	}
+	if !strings.Contains(listContent, "NEVER create files outside ./tmp") {
+		t.Errorf("list output missing rule text: %s", listContent)
+	}
+}
+
+func TestWriteRuleTooLong(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "test")
+	agentsDir := filepath.Join(dir, ".agents")
+	knowledge.EnsureDir(agentsDir)
+	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"),
+		&knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{}})
+
+	resolver, _, err := projects.Build([]string{root}, nil, "")
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
+
+	handler := WriteHandler(resolver, nil)
+	longRule := strings.Repeat("x", 201)
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{
+		"project":  "test",
+		"category": "conventions",
+		"summary":  "s",
+		"detail":   "d",
+		"rule":     longRule,
+		"source":   "test",
+	}
+	result, _ := handler(context.Background(), req)
+	if result == nil {
+		t.Fatal("handler returned nil")
+	}
+	if !result.IsError {
+		t.Fatal("expected error for oversized rule")
+	}
+}
+
+func TestUpdateWithRule(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "test")
+	agentsDir := filepath.Join(dir, ".agents")
+	knowledge.EnsureDir(agentsDir)
+
+	entry := knowledge.Entry{
+		ID:      "conv-001",
+		Summary: "Test entry",
+		Detail:  "Some detail",
+		Source:  "test",
+		Date:    "2024-01-01",
+	}
+	kf := &knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{entry}}
+	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), kf)
+
+	indexPath := filepath.Join(dir, ".index")
+	idx, _ := search.NewIndex(indexPath, []string{"test"})
+	defer idx.Close()
+
+	resolver, _, err := projects.Build([]string{root}, nil, "")
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
+
+	handler := UpdateHandler(resolver, idx)
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{
+		"project":  "test",
+		"category": "conventions",
+		"id":       "conv-001",
+		"rule":     "NEVER do the thing",
+	}
+	result, err := handler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("UpdateHandler() returned error: %+v", result)
+	}
+
+	loaded, _ := knowledge.Load(knowledge.CategoryFilePath(agentsDir, "conventions"))
+	if loaded.Entries[0].Rule != "NEVER do the thing" {
+		t.Errorf("Rule = %q, want %q", loaded.Entries[0].Rule, "NEVER do the thing")
+	}
+}
+
+func TestListConstraintsSeparation(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "test")
+	agentsDir := filepath.Join(dir, ".agents")
+	knowledge.EnsureDir(agentsDir)
+
+	entries := []knowledge.Entry{
+		{ID: "conv-001", Summary: "Regular entry", Detail: "info", Source: "test", Date: "2024-01-01"},
+		{ID: "conv-002", Summary: "Constrained entry", Detail: "info", Rule: "NEVER violate this", Source: "test", Date: "2024-01-01"},
+	}
+	kf := &knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: entries}
+	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), kf)
+
+	resolver, _, err := projects.Build([]string{root}, nil, "")
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
+
+	indexPath := filepath.Join(root, ".index")
+	idx, _ := search.NewIndex(indexPath, []string{"test"})
+	defer idx.Close()
+
+	handler := ListHandler(resolver, idx)
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{"project": "test"}
+	result, _ := handler(context.Background(), req)
+	content := extractTextContent(t, result)
+
+	if !strings.Contains(content, "## constraints") {
+		t.Errorf("missing constraints section: %s", content)
+	}
+	if !strings.Contains(content, "NEVER violate this") {
+		t.Errorf("missing rule in constraints: %s", content)
+	}
+	if !strings.Contains(content, "[conv-002]") {
+		t.Errorf("missing constrained entry ID: %s", content)
+	}
+
+	constraintsIdx := strings.Index(content, "## constraints")
+	regularIdx := strings.Index(content, "## conventions")
+	if constraintsIdx >= regularIdx {
+		t.Errorf("constraints section should appear before regular entries")
+	}
+	if strings.Contains(content[regularIdx:], "Constrained entry") {
+		t.Errorf("constrained entry should not appear in regular entries section: %s", content[regularIdx:])
+	}
+	if !strings.Contains(content[regularIdx:], "Regular entry") {
+		t.Errorf("regular entry should appear in regular entries section: %s", content[regularIdx:])
 	}
 }

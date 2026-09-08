@@ -59,6 +59,7 @@ func UpdateHandler(res *projects.Resolver, idx *search.Index) func(context.Conte
 		// Collect optional fields
 		newSummary := request.GetString("summary", "")
 		newDetail := request.GetString("detail", "")
+		newRule := request.GetString("rule", "")
 		newSupersedes := request.GetString("supersedes", "")
 
 		// Validate optional fields before applying
@@ -68,10 +69,13 @@ func UpdateHandler(res *projects.Resolver, idx *search.Index) func(context.Conte
 		if newDetail != "" && len(newDetail) > maxDetailSize {
 			return mcp.NewToolResultError(fmt.Sprintf("detail too long: %d bytes (max %d)", len(newDetail), maxDetailSize)), nil
 		}
+		if newRule != "" && len(newRule) > 200 {
+			return mcp.NewToolResultError(fmt.Sprintf("rule too long: %d chars (max 200)", len(newRule))), nil
+		}
 
 		// Reject no-op updates
-		if newSummary == "" && newDetail == "" && newSupersedes == "" {
-			return mcp.NewToolResultError("no fields to update (provide summary, detail, or supersedes)"), nil
+		if newSummary == "" && newDetail == "" && newRule == "" && newSupersedes == "" {
+			return mcp.NewToolResultError("no fields to update (provide summary, detail, rule, or supersedes)"), nil
 		}
 
 		// Validate supersedes references an existing ID in the same category
@@ -98,6 +102,9 @@ func UpdateHandler(res *projects.Resolver, idx *search.Index) func(context.Conte
 				if newDetail != "" {
 					kf.Entries[i].Detail = newDetail
 				}
+				if newRule != "" {
+					kf.Entries[i].Rule = newRule
+				}
 				if newSupersedes != "" {
 					kf.Entries[i].Supersedes = newSupersedes
 				}
@@ -122,6 +129,7 @@ func UpdateHandler(res *projects.Resolver, idx *search.Index) func(context.Conte
 					doc := search.SearchDocument{
 						Summary:  entry.Summary,
 						Detail:   entry.Detail,
+						Rule:     entry.Rule,
 						Category: category,
 						Project:  ref.Address,
 					}
