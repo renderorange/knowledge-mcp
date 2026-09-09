@@ -6,9 +6,9 @@ import (
 	"fmt"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/renderorange/agents_knowledge/knowledge"
-	"github.com/renderorange/agents_knowledge/projects"
-	"github.com/renderorange/agents_knowledge/search"
+	"github.com/renderorange/knowledge-mcp/knowledge"
+	"github.com/renderorange/knowledge-mcp/projects"
+	"github.com/renderorange/knowledge-mcp/search"
 )
 
 // QueryHandler handles the query_knowledge MCP tool.

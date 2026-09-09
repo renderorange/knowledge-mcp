@@ -16,10 +16,10 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/renderorange/agents_knowledge/knowledge"
-	"github.com/renderorange/agents_knowledge/projects"
-	"github.com/renderorange/agents_knowledge/search"
-	"github.com/renderorange/agents_knowledge/tools"
+	"github.com/renderorange/knowledge-mcp/knowledge"
+	"github.com/renderorange/knowledge-mcp/projects"
+	"github.com/renderorange/knowledge-mcp/search"
+	"github.com/renderorange/knowledge-mcp/tools"
 )
 
 var version = "dev"

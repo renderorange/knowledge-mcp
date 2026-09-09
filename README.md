@@ -193,3 +193,7 @@ Anti-patterns that erase the savings:
 - Storing whole documents or source code in `detail`.
 - Mirroring the same rules in both `AGENTS.md` and the store intentlessly.
 - Running `query_knowledge` with no query against org-level docs (returns every section).
+
+## License
+
+MIT — Copyright (c) 2026 Blaine Motsinger. See [LICENSE](LICENSE).

@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/renderorange/agents_knowledge/knowledge"
-	"github.com/renderorange/agents_knowledge/projects"
+	"github.com/renderorange/knowledge-mcp/knowledge"
+	"github.com/renderorange/knowledge-mcp/projects"
 	"gopkg.in/yaml.v3"
 )
 
