@@ -1181,3 +1181,120 @@ func TestListConstraintsSeparation(t *testing.T) {
 		t.Errorf("regular entry should appear in regular entries section: %s", content[regularIdx:])
 	}
 }
+
+func TestWriteToCentralStore(t *testing.T) {
+	root := t.TempDir()
+	proj := filepath.Join(root, "proj")
+	knowledge.EnsureDir(proj)
+	store := filepath.Join(t.TempDir(), "store")
+	knowledge.EnsureDir(store)
+
+	resolver, _, err := projects.BuildWithStore([]string{root}, nil, "", store)
+	if err != nil {
+		t.Fatalf("BuildWithStore() error: %v", err)
+	}
+
+	handler := WriteHandler(resolver, nil)
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{
+		"project":  "proj",
+		"category": "conventions",
+		"summary":  "central",
+		"detail":   "stored centrally",
+		"source":   "test",
+	}
+	result, err := handler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("write returned error: %v", extractTextContent(t, result))
+	}
+
+	want := filepath.Join(store, "proj", ".agents", "conventions.yaml")
+	if !knowledge.FileExists(want) {
+		t.Errorf("store file missing: %s", want)
+	}
+	if knowledge.FileExists(filepath.Join(proj, ".agents", "conventions.yaml")) {
+		t.Error("in-tree .agents must not be created under --store")
+	}
+}
+
+func TestListIgnoresInTreeUnderStore(t *testing.T) {
+	root := t.TempDir()
+	proj := filepath.Join(root, "proj")
+	knowledge.EnsureDir(filepath.Join(proj, ".agents"))
+	kf := &knowledge.KnowledgeFile{
+		Project: "proj", Version: 1,
+		Entries: []knowledge.Entry{
+			{ID: "conv-001", Summary: "stale in-tree entry", Source: "test", Date: knowledge.Today()},
+		},
+	}
+	if err := knowledge.Save(knowledge.CategoryFilePath(filepath.Join(proj, ".agents"), "conventions"), kf); err != nil {
+		t.Fatalf("seed in-tree: %v", err)
+	}
+
+	store := filepath.Join(t.TempDir(), "store")
+	knowledge.EnsureDir(store)
+	resolver, _, err := projects.BuildWithStore([]string{root}, nil, "", store)
+	if err != nil {
+		t.Fatalf("BuildWithStore() error: %v", err)
+	}
+
+	handler := ListHandler(resolver, nil)
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{"project": "proj"}
+	result, err := handler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("list error: %v", err)
+	}
+	content := extractTextContent(t, result)
+	if strings.Contains(content, "stale in-tree entry") {
+		t.Errorf("list must not surface in-tree entries under --store: %s", content)
+	}
+}
+
+func TestUpdateInCentralStore(t *testing.T) {
+	root := t.TempDir()
+	proj := filepath.Join(root, "proj")
+	knowledge.EnsureDir(proj)
+	store := filepath.Join(t.TempDir(), "store")
+	knowledge.EnsureDir(store)
+
+	resolver, _, err := projects.BuildWithStore([]string{root}, nil, "", store)
+	if err != nil {
+		t.Fatalf("BuildWithStore() error: %v", err)
+	}
+
+	want := filepath.Join(store, "proj", ".agents", "conventions.yaml")
+	writeHandler := WriteHandler(resolver, nil)
+	writeReq := mcp.CallToolRequest{}
+	writeReq.Params.Arguments = map[string]interface{}{
+		"project": "proj", "category": "conventions",
+		"summary": "before", "detail": "before detail", "source": "test",
+	}
+	if _, err := writeHandler(context.Background(), writeReq); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	handler := UpdateHandler(resolver, nil)
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{
+		"project": "proj", "category": "conventions", "id": "conv-001", "summary": "after",
+	}
+	result, err := handler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("update error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("update returned error: %v", extractTextContent(t, result))
+	}
+
+	loaded, loadErr := knowledge.Load(want)
+	if loadErr != nil {
+		t.Fatalf("load store file: %v", loadErr)
+	}
+	if loaded.Entries[0].Summary != "after" {
+		t.Errorf("summary = %q, want %q", loaded.Entries[0].Summary, "after")
+	}
+}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"path/filepath"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/renderorange/knowledge-mcp/knowledge"
@@ -64,12 +63,14 @@ func WriteHandler(res *projects.Resolver, idx *search.Index) func(context.Contex
 		}
 		if ref.Kind == projects.KindOrg {
 			return mcp.NewToolResultError(fmt.Sprintf(
-				"%q is an org root; org-level knowledge is file-based — edit %s/.agents/knowledge/ directly",
-				project, ref.Path)), nil
+				"%q is an org root; org-level knowledge is file-based — edit %s directly",
+				project, res.OrgKnowledgeDir(ref))), nil
 		}
-		projectPath := ref.Path
 
-		agentsDir := filepath.Join(projectPath, ".agents")
+		agentsDir := res.AgentsDir(ref)
+		if err := knowledge.EnsureDir(agentsDir); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("create agents directory: %v", err)), nil
+		}
 		catPath := knowledge.CategoryFilePath(agentsDir, category)
 
 		mu := fileLocks.Get(catPath)
