@@ -5,7 +5,8 @@
       "command": ["/path/to/knowledge-mcp",
         "--root", "/path/to/org",
         "--root", "/path/to/another-org",
-        "--project", "/path/to/standalone-project"],
+        "--project", "/path/to/standalone-project",
+        "--global", "/path/to/shared-global-store"],
       "type": "local"
     }
   }

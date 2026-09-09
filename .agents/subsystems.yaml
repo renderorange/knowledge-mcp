@@ -1,0 +1,35 @@
+project: knowledge-mcp
+version: 1
+entries:
+    - id: sub-001
+      summary: Bleve search index: lifecycle, rebuild triggers, org section docs
+      detail: |-
+        Located at <config>-derived path: single-flag configs use <root>/.agents/.index; multi-entry configs use $XDG_STATE_HOME/knowledge-mcp/<sha8>.index; --index overrides.
+        metaFileVersion (search/index.go, currently 3) + recorded project-name set are written to <index>.meta.json; changed version or names force a wipe+rebuild from yaml source of truth.
+        Corruption auto-recovery: bleve.Open failure deletes index dir and rebuilds (search/index.go NewIndex).
+        Documents: summary, detail, rule, category, project fields; scoped keys <project>/<entryID>. Query results de-scope the ID.
+        Org-level docs (.agents/knowledge/*.md) are split on "## " headings into sections with keys org-<file>::<heading>; content before first heading becomes Overview (main.go splitSections).
+        User query text is escaped (search/index.go escapeQueryString) so special characters are literal, never lucene syntax.
+      source: code review, 2026-09-08
+      date: "2026-09-08"
+    - id: sub-002
+      summary: Project resolver: kinds, addressing, dynamic fallback
+      detail: |-
+        projects/resolver.go builds refs: KindProject (has .agents/ yaml), KindOrg (root with .agents/knowledge/), KindGlobal (--global path, addressed _global).
+        Roots scan immediate children only, skipping .agents and .git; symlinks followed; unreadable entries warn.
+        Addressing: bare name when unique, else <qualifier>/<name>; org roots always win their bare name; duplicate root basenames are a startup error.
+        Resolve falls back dynamically for paths created after startup (resolveDynamicBare/Qualified); Covers checks known paths and root prefixes.
+        Index location is keyed by hash of canonical root/project paths (github sha256) so different configs get different indexes.
+      source: code review, 2026-09-08
+      date: "2026-09-08"
+    - id: sub-003
+      summary: Knowledge store: atomic writes, per-file locks, entry lifecycle
+      detail: |-
+        knowledge/store.go: Save writes temp file, fsyncs, renames (atomic); LoadOrCreate returns empty KnowledgeFile when missing.
+        tools package keeps per-path RWMutexes (fileLocks) around read-modify-write cycles; write/update lock, list takes RLock.
+        NextID scans existing IDs for the category prefix and returns the next sequential ID.
+        write_knowledge validates category, summary <=100 chars, detail <=1MB, rule <=200 chars; org roots reject writes (file-based knowledge only).
+        update_knowledge validates supersedes references an existing ID in the same category and rejects no-op updates.
+        Rules surface as a constraints section in list_knowledge output, above regular entries.
+      source: code review, 2026-09-08
+      date: "2026-09-08"

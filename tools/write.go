@@ -84,12 +84,12 @@ func WriteHandler(res *projects.Resolver, idx *search.Index) func(context.Contex
 		id := knowledge.NextID(kf.Entries, knowledge.CategoryPrefix(category))
 
 		entry := knowledge.Entry{
-			ID:         id,
-			Summary:    summary,
-			Detail:     detail,
-			Rule:       rule,
-			Source:     source,
-			Date:       knowledge.Today(),
+			ID:      id,
+			Summary: summary,
+			Detail:  detail,
+			Rule:    rule,
+			Source:  source,
+			Date:    knowledge.Today(),
 		}
 
 		kf.Entries = append(kf.Entries, entry)

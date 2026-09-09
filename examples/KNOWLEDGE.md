@@ -12,5 +12,5 @@ Query knowledge for current context:
 ## After learning something significant
 
 Write it back:
-- `write_knowledge(project="<name>", category="subsystems", summary="...", detail="...", confidence="...", source="...")`
-- `write_knowledge(project="<name>", category="decisions", summary="...", detail="...", confidence="...", source="...")`
+- `write_knowledge(project="<name>", category="subsystems", summary="...", detail="...", source="...")`
+- `write_knowledge(project="<name>", category="decisions", summary="...", detail="...", source="...")`

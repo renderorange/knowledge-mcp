@@ -1044,6 +1044,93 @@ func TestUpdateWithRule(t *testing.T) {
 	}
 }
 
+func TestListGlobalProvenance(t *testing.T) {
+	root := t.TempDir()
+	projDir := filepath.Join(root, "myproj")
+	globalDir := t.TempDir()
+	knowledge.EnsureDir(filepath.Join(projDir, ".agents"))
+	knowledge.EnsureDir(filepath.Join(globalDir, ".agents"))
+
+	globalKF := &knowledge.KnowledgeFile{Project: "_global", Version: 1, Entries: []knowledge.Entry{
+		{ID: "conv-001", Summary: "Global constraint", Detail: "info", Rule: "NEVER violate this", Source: "test", Date: "2024-01-01"},
+		{ID: "conv-002", Summary: "Global regular", Detail: "info", Source: "test", Date: "2024-01-01"},
+	}}
+	knowledge.Save(knowledge.CategoryFilePath(filepath.Join(globalDir, ".agents"), "conventions"), globalKF)
+
+	resolver, _, err := projects.Build([]string{root}, nil, globalDir)
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
+
+	indexPath := filepath.Join(root, ".index")
+	idx, _ := search.NewIndex(indexPath, []string{"myproj", "_global"})
+	defer idx.Close()
+
+	handler := ListHandler(resolver, idx)
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{"project": "myproj"}
+	result, _ := handler(context.Background(), req)
+	content := extractTextContent(t, result)
+
+	if !strings.Contains(content, "## constraints (global)") {
+		t.Errorf("global constraints section missing label: %s", content)
+	}
+	if !strings.Contains(content, "## conventions (global)") {
+		t.Errorf("global conventions section missing label: %s", content)
+	}
+	if !strings.Contains(content, "NEVER violate this") {
+		t.Errorf("global rule text missing: %s", content)
+	}
+	if !strings.Contains(content, "no project-specific knowledge entries found") {
+		t.Errorf("missing empty-project note: %s", content)
+	}
+}
+
+func TestListOrgGroupedByFile(t *testing.T) {
+	root := t.TempDir()
+	knowledge.EnsureDir(filepath.Join(root, ".agents", "knowledge"))
+
+	resolver, _, err := projects.Build([]string{root}, nil, "")
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
+	rootName := filepath.Base(root)
+
+	indexPath := filepath.Join(root, ".index")
+	idx, _ := search.NewIndex(indexPath, []string{rootName})
+	defer idx.Close()
+
+	for _, sec := range []struct{ file, heading, detail string }{
+		{"architecture.md", "Build Commands", "make test"},
+		{"architecture.md", "Testing", "make test-stability"},
+		{"review.md", "Overview", "chaon-review"},
+	} {
+		id := fmt.Sprintf("%s/org-%s::%s", rootName, sec.file, sec.heading)
+		if err := idx.Add(id, search.SearchDocument{
+			Summary: sec.file + ": " + sec.heading, Detail: sec.detail,
+			Category: "conventions", Project: rootName,
+		}); err != nil {
+			t.Fatalf("Add(%s) error: %v", id, err)
+		}
+	}
+
+	handler := ListHandler(resolver, idx)
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{"project": rootName}
+	result, _ := handler(context.Background(), req)
+	content := extractTextContent(t, result)
+
+	if !strings.Contains(content, "### architecture.md (2 sections)") {
+		t.Errorf("architecture group missing: %s", content)
+	}
+	if !strings.Contains(content, "- [architecture.md :: Build Commands]") {
+		t.Errorf("section entry missing: %s", content)
+	}
+	if !strings.Contains(content, "### review.md (1 sections)") {
+		t.Errorf("review group missing: %s", content)
+	}
+}
+
 func TestListConstraintsSeparation(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "test")

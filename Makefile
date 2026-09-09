@@ -1,5 +1,5 @@
 BINARY := knowledge-mcp
-VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GOFLAGS := -ldflags "-X main.version=$(VERSION)"
 PLATFORMS := linux/amd64 darwin/amd64 darwin/arm64 windows/amd64
 
@@ -9,6 +9,9 @@ all: fmt tidy lint test build
 
 build:
 	go build $(GOFLAGS) -o $(BINARY) .
+
+build/%:
+	@$(MAKE) build VERSION=$*
 
 build-all:
 	@mkdir -p dist

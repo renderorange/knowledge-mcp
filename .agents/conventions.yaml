@@ -1,0 +1,24 @@
+project: knowledge-mcp
+version: 1
+entries:
+    - id: conv-001
+      summary: Go project standards: gofmt, go vet, go test, GH-N commits
+      detail: |-
+        Format: gofmt (make fmt runs gofmt -s -w .). gofmt -l must output nothing.
+        Verify: go test ./... and go vet ./... must pass before work is claimed done; go build ./... must compile all packages.
+        Make targets: all (fmt tidy lint test build), build, build-all, test, clean, install, lint (golangci-lint or go vet fallback), fmt, tidy.
+        Build command: make build or go build -o knowledge-mcp . Binary installs to /home/blaine/bin/knowledge-mcp.
+        Module: github.com/renderorange/agents_knowledge (README title knowledge-mcp). Go style follows the codebase, not external linters.
+      rule: 'gofmt -l and go vet ./... and go test ./... must all pass before claiming a change is done'
+      source: code review, 2026-09-08
+      date: "2026-09-08"
+    - id: conv-002
+      summary: Knowledge entry content rules for this project's own store
+      detail: |-
+        Detail is 10-20 lines of query-able facts, not source copies.
+        Summary is a topic line (max 100 chars); enforcement text goes in the rule field, which list_knowledge surfaces as constraints.
+        Every entry carries source (provenance) and date. Update date on entry changes.
+        IDs are sequential per category: conv-NNN, sub-NNN, dec-NNN.
+      rule: 'Keep detail at summary level; never copy source files into detail'
+      source: README token-savings guidance, 2026-09-08
+      date: "2026-09-08"

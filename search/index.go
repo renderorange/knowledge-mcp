@@ -16,7 +16,9 @@ import (
 )
 
 // metaFileVersion is the on-disk key-format version. A mismatch forces an index rebuild.
-const metaFileVersion = 2
+// Version 3: org-level knowledge docs are indexed per markdown section
+// instead of as whole files.
+const metaFileVersion = 3
 
 // indexMeta is stored in a sibling file next to the bleve index directory.
 // It records the key format and the project-name set the index was built with;
@@ -159,7 +161,7 @@ func (i *Index) Query(project, q, category string, limit int) ([]SearchResult, e
 	if q == "" {
 		baseQuery = bleve.NewMatchAllQuery()
 	} else {
-		baseQuery = bleve.NewQueryStringQuery(q)
+		baseQuery = bleve.NewQueryStringQuery(escapeQueryString(q))
 	}
 
 	var conjuncts []query.Query
@@ -230,4 +232,44 @@ func (i *Index) Close() error {
 // DeleteIndex removes a bleve index directory.
 func DeleteIndex(indexPath string) error {
 	return os.RemoveAll(indexPath)
+}
+
+// escapeQueryString escapes lucene/bleve query-string syntax characters so
+// user input is always treated as plain text and can never be parsed as
+// query operators (e.g. field:value syntax, boolean operators, or an
+// unterminated quoted phrase).
+func escapeQueryString(q string) string {
+	runes := []rune(q)
+	var b strings.Builder
+	for i, r := range runes {
+		var prev, next rune
+		if i > 0 {
+			prev = runes[i-1]
+		} else {
+			prev = ' '
+		}
+		if i+1 < len(runes) {
+			next = runes[i+1]
+		} else {
+			next = ' '
+		}
+
+		needEscape := false
+		switch r {
+		case '+', '-':
+			// Only syntax-active as a unary operator at a token boundary;
+			// hyphens inside words (test-stability) stay untouched.
+			needEscape = prev == ' ' || prev == '\t' || prev == '\n' || prev == '('
+		case ':', '\\', '"', '{', '}', '[', ']', '^', '~', '(', ')', '!', '/':
+			needEscape = true
+		case '&', '|':
+			// Only syntax-active when doubled (&& / ||).
+			needEscape = next == r
+		}
+		if needEscape {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
