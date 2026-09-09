@@ -378,3 +378,201 @@ func TestGlobalRefNone(t *testing.T) {
 		t.Error("GlobalRef() should return false when no global is configured")
 	}
 }
+
+func TestBuildWithStoreInvalid(t *testing.T) {
+	tmp := t.TempDir()
+
+	if _, _, err := BuildWithStore(nil, nil, "", filepath.Join(tmp, "missing")); err == nil {
+		t.Error("nonexistent store path should error")
+	}
+	file := filepath.Join(tmp, "afile")
+	os.WriteFile(file, []byte("x"), 0644)
+	if _, _, err := BuildWithStore(nil, nil, "", file); err == nil {
+		t.Error("file store path should error")
+	}
+}
+
+func TestAgentsDirWithoutStore(t *testing.T) {
+	dir := mkdir(t, t.TempDir(), "myproj")
+
+	res, _, err := Build(nil, []string{dir}, "")
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+	ref, err := res.Resolve("myproj")
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+	if want := filepath.Join(dir, ".agents"); res.AgentsDir(ref) != want {
+		t.Errorf("AgentsDir = %q, want %q", res.AgentsDir(ref), want)
+	}
+	if want := filepath.Join(dir, ".agents", "knowledge"); res.OrgKnowledgeDir(ref) != want {
+		t.Errorf("OrgKnowledgeDir = %q, want %q", res.OrgKnowledgeDir(ref), want)
+	}
+}
+
+func TestAgentsDirWithStore(t *testing.T) {
+	r1 := mkdir(t, t.TempDir(), "r1")
+	r2 := mkdir(t, t.TempDir(), "r2")
+	mkdir(t, r1, "api")
+	mkdir(t, r2, "api")
+	globalDir := mkdir(t, t.TempDir(), "global")
+	store := mkdir(t, t.TempDir(), "store")
+
+	res, _, err := BuildWithStore([]string{r1, r2}, nil, globalDir, store)
+	if err != nil {
+		t.Fatalf("BuildWithStore() error: %v", err)
+	}
+
+	qualified, err := res.Resolve("r1/api")
+	if err != nil {
+		t.Fatalf("Resolve(r1/api) error: %v", err)
+	}
+	if want := filepath.Join(store, "r1", "api", ".agents"); res.AgentsDir(qualified) != want {
+		t.Errorf("AgentsDir(qualified) = %q, want %q", res.AgentsDir(qualified), want)
+	}
+
+	gref, err := res.Resolve("_global")
+	if err != nil {
+		t.Fatalf("Resolve(_global) error: %v", err)
+	}
+	if want := filepath.Join(globalDir, ".agents"); res.AgentsDir(gref) != want {
+		t.Errorf("AgentsDir(global) = %q, want %q (must never re-root)", res.AgentsDir(gref), want)
+	}
+}
+
+func TestBuildWithStoreExcludesStoreUnderRoot(t *testing.T) {
+	root := t.TempDir()
+	mkdir(t, root, "alpha")
+	store := mkdir(t, root, ".knowledge")
+	mkdir(t, store, "alpha") // store child mirrors a project name
+
+	res, warnings, err := BuildWithStore([]string{root}, nil, "", store)
+	if err != nil {
+		t.Fatalf("BuildWithStore() error: %v", err)
+	}
+
+	if _, err := res.Resolve(".knowledge"); err == nil {
+		t.Error("store dir itself must not be discovered as a project")
+	}
+	warned := false
+	for _, w := range warnings {
+		if strings.Contains(w, "inside the --store directory") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("expected exclusion warning, got %v", warnings)
+	}
+
+	// Dynamic resolution must not resurrect the store dir either.
+	if _, err := res.Resolve(".knowledge"); err == nil {
+		t.Error("dynamic resolution must exclude the store dir")
+	}
+}
+
+func TestBuildWithStoreInTreeWarnings(t *testing.T) {
+	root := t.TempDir()
+	proj := mkdir(t, root, "proj")
+	mkdir(t, proj, ".agents")
+	org := mkdir(t, t.TempDir(), "org")
+	mkdir(t, org, ".agents", "knowledge")
+	store := mkdir(t, t.TempDir(), "store")
+
+	_, warnings, err := BuildWithStore([]string{root, org}, nil, "", store)
+	if err != nil {
+		t.Fatalf("BuildWithStore() error: %v", err)
+	}
+
+	var projWarn, orgWarn int
+	for _, w := range warnings {
+		if strings.Contains(w, "ignoring in-tree .agents at") {
+			projWarn++
+		}
+		if strings.Contains(w, "ignoring in-tree org knowledge at") {
+			orgWarn++
+		}
+	}
+	if projWarn != 1 {
+		t.Errorf("want 1 in-tree project warning, got %d (%v)", projWarn, warnings)
+	}
+	if orgWarn != 1 {
+		t.Errorf("want 1 in-tree org warning, got %d (%v)", orgWarn, warnings)
+	}
+}
+
+func TestBuildWithStoreOrgKnowledgeInStore(t *testing.T) {
+	root := mkdir(t, t.TempDir(), "org")
+	store := mkdir(t, t.TempDir(), "store")
+	mkdir(t, store, "org", ".agents", "knowledge")
+
+	res, _, err := BuildWithStore([]string{root}, nil, "", store)
+	if err != nil {
+		t.Fatalf("BuildWithStore() error: %v", err)
+	}
+
+	ref, err := res.Resolve("org")
+	if err != nil {
+		t.Fatalf("Resolve(org) error: %v", err)
+	}
+	if ref.Kind != KindOrg {
+		t.Errorf("store-hosted org knowledge should create an org ref, got kind %v", ref.Kind)
+	}
+	if want := filepath.Join(store, "org", ".agents", "knowledge"); res.OrgKnowledgeDir(ref) != want {
+		t.Errorf("OrgKnowledgeDir = %q, want %q", res.OrgKnowledgeDir(ref), want)
+	}
+}
+
+func TestBuildWithStoreNoOrgKnowledgeInTree(t *testing.T) {
+	root := mkdir(t, t.TempDir(), "org")
+	mkdir(t, root, ".agents", "knowledge") // in-tree only
+	store := mkdir(t, t.TempDir(), "store")
+
+	res, _, err := BuildWithStore([]string{root}, nil, "", store)
+	if err != nil {
+		t.Fatalf("BuildWithStore() error: %v", err)
+	}
+
+	if _, err := res.Resolve("org"); err == nil {
+		t.Error("in-tree org knowledge must not create an org ref when --store is set")
+	}
+}
+
+func TestRefForPath(t *testing.T) {
+	dir := mkdir(t, t.TempDir(), "myproj")
+
+	res, _, err := Build(nil, []string{dir}, "")
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+
+	ref, ok := res.RefForPath(dir)
+	if !ok || ref.Address != "myproj" {
+		t.Errorf("RefForPath(%q) = %#v, %v; want myproj", dir, ref, ok)
+	}
+	if _, ok := res.RefForPath(filepath.Join(dir, "nonexistent")); ok {
+		t.Error("RefForPath should return false for unknown paths")
+	}
+}
+
+func TestExplicitProjectInsideStoreKept(t *testing.T) {
+	store := mkdir(t, t.TempDir(), "store")
+	inner := mkdir(t, store, "inner")
+
+	res, warnings, err := BuildWithStore(nil, []string{inner}, "", store)
+	if err != nil {
+		t.Fatalf("BuildWithStore() error: %v", err)
+	}
+	if _, err := res.Resolve("inner"); err != nil {
+		t.Errorf("explicit project inside store should stay resolvable: %v", err)
+	}
+	found := false
+	for _, w := range warnings {
+		if strings.Contains(w, "explicit project") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected explicit-project warning, got %v", warnings)
+	}
+}
