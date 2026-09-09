@@ -1,4 +1,4 @@
-module github.com/renderorange/agents_knowledge
+module github.com/renderorange/knowledge-mcp
 
 go 1.25.5
 
