@@ -15,13 +15,13 @@ type Meta struct {
 
 // Entry represents a single knowledge entry.
 type Entry struct {
-	ID         string   `yaml:"id"`
-	Summary    string   `yaml:"summary"`
-	Detail     string   `yaml:"detail"`
-	Rule       string   `yaml:"rule,omitempty"`
-	Source     string   `yaml:"source"`
-	Date       string   `yaml:"date"`
-	Supersedes string   `yaml:"supersedes,omitempty"`
+	ID         string `yaml:"id"`
+	Summary    string `yaml:"summary"`
+	Detail     string `yaml:"detail"`
+	Rule       string `yaml:"rule,omitempty"`
+	Source     string `yaml:"source"`
+	Date       string `yaml:"date"`
+	Supersedes string `yaml:"supersedes,omitempty"`
 }
 
 // KnowledgeFile represents a .agents/<category>.yaml file.
@@ -64,5 +64,3 @@ func IsValidCategory(category string) bool {
 	}
 	return false
 }
-
-

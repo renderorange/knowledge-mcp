@@ -22,6 +22,8 @@ import (
 	"github.com/renderorange/agents_knowledge/tools"
 )
 
+var version = "dev"
+
 type pathList []string
 
 func (p *pathList) String() string {
@@ -39,11 +41,17 @@ func (p *pathList) Set(v string) error {
 func main() {
 	var roots pathList
 	var projs pathList
+	showVersion := flag.Bool("version", false, "Print version and exit")
 	globalPath := flag.String("global", "", "Path to a global knowledge store shared across all projects")
 	indexOverride := flag.String("index", "", "Override the search index location")
 	flag.Var(&roots, "root", "Org root whose immediate children are projects (repeatable)")
 	flag.Var(&projs, "project", "Single project root (repeatable)")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version)
+		os.Exit(0)
+	}
 
 	if len(roots) == 0 && len(projs) == 0 && *globalPath == "" {
 		fmt.Fprintln(os.Stderr, "error: at least one --project, --root, or --global is required")
@@ -75,7 +83,7 @@ func main() {
 	// Create MCP server
 	s := server.NewMCPServer(
 		"knowledge-mcp",
-		"1.0.0",
+		version,
 		server.WithToolCapabilities(false),
 	)
 
@@ -91,35 +99,35 @@ func main() {
 		tools.InitHandler(resolver),
 	)
 
-		s.AddTool(
-			mcp.NewTool("write_knowledge",
-				mcp.WithDescription("Add a new knowledge entry to a project's .agents/ store"),
-				mcp.WithString("project",
-					mcp.Required(),
-					mcp.Description("Project name (bare if unique, else root/project)"),
-				),
-				mcp.WithString("category",
-					mcp.Required(),
-					mcp.Description("Category: conventions, subsystems, or decisions"),
-				),
-				mcp.WithString("summary",
-					mcp.Required(),
-					mcp.Description("One-line description (max 100 chars)"),
-				),
-				mcp.WithString("detail",
-					mcp.Required(),
-					mcp.Description("Concise knowledge (10-20 lines). Summarize key facts, don't copy source files. Include only query-able information."),
-				),
-				mcp.WithString("source",
-					mcp.Required(),
-					mcp.Description("How this was learned (provenance)"),
-				),
-				mcp.WithString("rule",
-					mcp.Description("Imperative constraint this entry enforces (e.g. \"Never create files outside ./tmp\"). Shown prominently in list output. Max 200 chars."),
-				),
+	s.AddTool(
+		mcp.NewTool("write_knowledge",
+			mcp.WithDescription("Add a new knowledge entry to a project's .agents/ store"),
+			mcp.WithString("project",
+				mcp.Required(),
+				mcp.Description("Project name (bare if unique, else root/project)"),
 			),
-			tools.WriteHandler(resolver, idx),
-		)
+			mcp.WithString("category",
+				mcp.Required(),
+				mcp.Description("Category: conventions, subsystems, or decisions"),
+			),
+			mcp.WithString("summary",
+				mcp.Required(),
+				mcp.Description("One-line description (max 100 chars)"),
+			),
+			mcp.WithString("detail",
+				mcp.Required(),
+				mcp.Description("Concise knowledge (10-20 lines). Summarize key facts, don't copy source files. Include only query-able information."),
+			),
+			mcp.WithString("source",
+				mcp.Required(),
+				mcp.Description("How this was learned (provenance)"),
+			),
+			mcp.WithString("rule",
+				mcp.Description("Imperative constraint this entry enforces (e.g. \"Never create files outside ./tmp\"). Shown prominently in list output. Max 200 chars."),
+			),
+		),
+		tools.WriteHandler(resolver, idx),
+	)
 
 	s.AddTool(
 		mcp.NewTool("query_knowledge",
@@ -252,7 +260,9 @@ func indexProjectKnowledge(projectPath, projectName string, idx *search.Index) {
 	}
 }
 
-// indexOrgKnowledge indexes an org root's .agents/knowledge/ files.
+// indexOrgKnowledge indexes an org root's .agents/knowledge/ files as
+// individual markdown sections, so queries return only the relevant
+// section instead of the entire document.
 func indexOrgKnowledge(root, orgName string, idx *search.Index) {
 	orgAgentsDir := filepath.Join(root, ".agents", "knowledge")
 	for _, catFile := range []string{"architecture.md", "review.md"} {
@@ -261,16 +271,58 @@ func indexOrgKnowledge(root, orgName string, idx *search.Index) {
 		if err != nil {
 			continue
 		}
-		doc := search.SearchDocument{
-			Summary:  fmt.Sprintf("org-level knowledge: %s", catFile),
-			Detail:   string(data),
-			Category: "conventions",
-			Project:  orgName,
-		}
-		if addErr := idx.Add(orgName+"/org-"+catFile, doc); addErr != nil {
-			log.Printf("warning: failed to index %s/org-%s: %v", orgName, catFile, addErr)
+		for _, sec := range splitSections(string(data)) {
+			heading, body := sec[0], sec[1]
+			doc := search.SearchDocument{
+				Summary:  fmt.Sprintf("%s: %s", catFile, heading),
+				Detail:   body,
+				Category: "conventions",
+				Project:  orgName,
+			}
+			id := fmt.Sprintf("%s/org-%s::%s", orgName, catFile, heading)
+			if addErr := idx.Add(id, doc); addErr != nil {
+				log.Printf("warning: failed to index %s: %v", id, addErr)
+			}
 		}
 	}
+}
+
+// splitSections splits a knowledge markdown document on lines starting
+// with "## ". Content before the first section heading is kept under
+// "Overview". Subsection headings (### ...) stay part of their parent
+// section body.
+func splitSections(data string) [][2]string {
+	var sections [][2]string
+	var currentTitle string
+	var current strings.Builder
+
+	flush := func() {
+		title := currentTitle
+		if title == "" {
+			title = "Overview"
+		}
+		body := strings.TrimSpace(current.String())
+		if title == "Overview" && body == "" {
+			current.Reset()
+			return
+		}
+		sections = append(sections, [2]string{title, body})
+		current.Reset()
+	}
+
+	for _, line := range strings.Split(data, "\n") {
+		if rest, ok := strings.CutPrefix(line, "## "); ok {
+			flush()
+			currentTitle = strings.TrimSpace(rest)
+			current.WriteString(line)
+			current.WriteString("\n")
+			continue
+		}
+		current.WriteString(line)
+		current.WriteString("\n")
+	}
+	flush()
+	return sections
 }
 
 // indexLocation picks the bleve index path: explicit override, legacy

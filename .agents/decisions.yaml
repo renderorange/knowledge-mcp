@@ -1,0 +1,28 @@
+project: knowledge-mcp
+version: 1
+entries:
+    - id: dec-001
+      summary: Org-level knowledge is indexed per markdown section, not as whole files
+      detail: |-
+        Whole-file indexing made org queries return 5-6K tokens of unrelated content (measured 2026-09-08: "daisy test-stability" on chaon-io returned full architecture.md and review.md).
+        Split .agents/knowledge/*.md on "## " headings; each section is its own document with key org-<file>::<heading>.
+        list_knowledge for an org groups sections by source file; --global entries are merged into org listings with a (global) label.
+        Required metaFileVersion bump to force index rebuilds on existing installs.
+      source: user-requested token-savings fix, 2026-09-08
+      date: "2026-09-08"
+    - id: dec-002
+      summary: Merged global entries carry explicit (global) provenance in list output
+      detail: |-
+        list_knowledge for any non-global project prepends _global entries; previously they were indistinguishable from the project's own entries.
+        Section headers now carry a " (global)" suffix; projects with no local entries get an explicit "no project-specific knowledge entries found" note.
+        Query results already carried a project field, so only the list presentation changed.
+      source: user-requested provenance fix, 2026-09-08
+      date: "2026-09-08"
+    - id: dec-003
+      summary: Query text is escaped so special characters are always literal
+      detail: |-
+        User queries are plain text, not lucene syntax; characters like : ( ) && || " were previously interpreted as operators.
+        escapeQueryString escapes syntax-active characters (context-aware for +/- and &&/||); mid-word hyphens like test-stability stay intact.
+        Decision documented so future search work does not re-introduce raw QueryStringQuery usage.
+      source: user-requested robustness fix, 2026-09-08
+      date: "2026-09-08"

@@ -25,47 +25,6 @@ func ListHandler(res *projects.Resolver, idx *search.Index) func(context.Context
 			return mcp.NewToolResultError(resolveErr.Error()), nil
 		}
 
-		// For org roots, use the index to list entries
-		if ref.Kind == projects.KindOrg {
-			results, queryErr := idx.Query(ref.Address, "", "", 100)
-			if queryErr != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("search error: %v", queryErr)), nil
-			}
-			if len(results) == 0 {
-				return mcp.NewToolResultText("no knowledge entries found"), nil
-			}
-
-			var orgConstraints []search.SearchResult
-			var orgRegular []search.SearchResult
-			for _, r := range results {
-				if r.Rule != "" {
-					orgConstraints = append(orgConstraints, r)
-				} else {
-					orgRegular = append(orgRegular, r)
-				}
-			}
-
-			output := ""
-			if len(orgConstraints) > 0 {
-				output += fmt.Sprintf("## constraints (%d)\n", len(orgConstraints))
-				for _, r := range orgConstraints {
-					id := strings.TrimPrefix(r.ID, "org-")
-					output += fmt.Sprintf("[%s] %s\n", id, r.Rule)
-				}
-				output += "\n"
-			}
-			if len(orgRegular) > 0 {
-				output += fmt.Sprintf("## org-level knowledge (%d entries)\n\n", len(orgRegular))
-				for _, r := range orgRegular {
-					id := strings.TrimPrefix(r.ID, "org-")
-					output += fmt.Sprintf("- [%s] %s\n", id, r.Summary)
-				}
-			}
-			return mcp.NewToolResultText(output), nil
-		}
-
-		projectPath := ref.Path
-
 		filterCategory := request.GetString("category", "")
 		if filterCategory != "" && !knowledge.IsValidCategory(filterCategory) {
 			return mcp.NewToolResultError(fmt.Sprintf("invalid category: %q (must be conventions, subsystems, or decisions)", filterCategory)), nil
@@ -73,24 +32,83 @@ func ListHandler(res *projects.Resolver, idx *search.Index) func(context.Context
 
 		output := ""
 
-		// If querying a non-global project, also include global entries.
+		// For non-global lookups, prepend the shared global store with an
+		// explicit "(global)" label so merged entries are not mistaken for
+		// the project's own.
 		if ref.Address != projects.GlobalAddress {
 			if globalRef, ok := res.GlobalRef(); ok {
-				output += listProjectEntries(globalRef.Path, projects.GlobalAddress, filterCategory)
+				output += listProjectEntries(globalRef.Path, projects.GlobalAddress, filterCategory, " (global)")
 			}
 		}
 
-		output += listProjectEntries(projectPath, project, filterCategory)
+		if ref.Kind == projects.KindOrg {
+			output += listOrgEntries(idx, ref.Address, filterCategory)
+			if strings.TrimSpace(output) == "" {
+				return mcp.NewToolResultText("no knowledge entries found"), nil
+			}
+			return mcp.NewToolResultText(output), nil
+		}
 
-		if output == "" {
-			return mcp.NewToolResultText("no knowledge entries found"), nil
+		projectPath := ref.Path
+		local := listProjectEntries(projectPath, project, filterCategory, "")
+
+		if local == "" {
+			if strings.TrimSpace(output) == "" {
+				return mcp.NewToolResultText("no knowledge entries found"), nil
+			}
+			output += "no project-specific knowledge entries found\n"
+		} else {
+			output += local
 		}
 
 		return mcp.NewToolResultText(output), nil
 	}
 }
 
-func listProjectEntries(projectPath, projectName, filterCategory string) string {
+// listOrgEntries lists an org root's knowledge sections, grouped by source
+// file.
+func listOrgEntries(idx *search.Index, orgAddress, filterCategory string) string {
+	if idx == nil {
+		return ""
+	}
+
+	results, err := idx.Query(orgAddress, "", filterCategory, 200)
+	if err != nil {
+		return ""
+	}
+	if len(results) == 0 {
+		return ""
+	}
+
+	type fileGroup struct {
+		file    string
+		results []search.SearchResult
+	}
+	var groups []fileGroup
+	for _, r := range results {
+		file, _, hasSection := strings.Cut(strings.TrimPrefix(r.ID, "org-"), "::")
+		if !hasSection {
+			continue
+		}
+		if len(groups) == 0 || groups[len(groups)-1].file != file {
+			groups = append(groups, fileGroup{file: file})
+		}
+		groups[len(groups)-1].results = append(groups[len(groups)-1].results, r)
+	}
+
+	output := "## org-level knowledge (by section)\n\n"
+	for _, g := range groups {
+		output += fmt.Sprintf("### %s (%d sections)\n", g.file, len(g.results))
+		for _, r := range g.results {
+			_, heading, _ := strings.Cut(strings.TrimPrefix(r.ID, "org-"), "::")
+			output += fmt.Sprintf("- [%s :: %s]\n", g.file, heading)
+		}
+		output += "\n"
+	}
+	return output
+}
+
+func listProjectEntries(projectPath, projectName, filterCategory, headerSuffix string) string {
 	agentsDir := filepath.Join(projectPath, ".agents")
 
 	var constraints []knowledge.Entry
@@ -134,7 +152,7 @@ func listProjectEntries(projectPath, projectName, filterCategory string) string 
 	output := ""
 
 	if len(constraints) > 0 {
-		output += fmt.Sprintf("## constraints (%d)\n", len(constraints))
+		output += fmt.Sprintf("## constraints%s (%d)\n", headerSuffix, len(constraints))
 		for _, entry := range constraints {
 			output += fmt.Sprintf("[%s] %s (date: %s)\n", entry.ID, entry.Rule, entry.Date)
 		}
@@ -145,7 +163,7 @@ func listProjectEntries(projectPath, projectName, filterCategory string) string 
 		if len(ce.entries) == 0 {
 			continue
 		}
-		output += fmt.Sprintf("## %s (%d entries)\n", ce.category, len(ce.entries))
+		output += fmt.Sprintf("## %s%s (%d entries)\n", ce.category, headerSuffix, len(ce.entries))
 		for _, entry := range ce.entries {
 			output += fmt.Sprintf("- [%s] %s (date: %s)\n",
 				entry.ID, entry.Summary, entry.Date)

@@ -225,6 +225,44 @@ func TestIndexEmptyQuery(t *testing.T) {
 	}
 }
 
+func TestQueryEscapesSpecialCharacters(t *testing.T) {
+	dir := t.TempDir()
+	idx := newIndex(t, filepath.Join(dir, "test.bleve"), []string{"test"})
+	defer idx.Close()
+
+	if err := idx.Add("test/conv-001", SearchDocument{
+		Summary:  "GH-1: commit format",
+		Detail:   "Commit messages use the GH-1: verb phrase format",
+		Category: "conventions",
+		Project:  "test",
+	}); err != nil {
+		t.Fatalf("Add() error: %v", err)
+	}
+
+	// Colon and mid-word hyphen must be plain text, not field/wildcard syntax.
+	results, err := idx.Query("test", "GH-1: verb", "", 10)
+	if err != nil {
+		t.Fatalf("Query() with special characters error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+
+	// Parens and a doubled ampersand must not parse as operators.
+	results, err = idx.Query("test", "(GH-1) && format", "", 10)
+	if err != nil {
+		t.Fatalf("Query() with operators error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+
+	// An unbalanced quote must not produce a syntax error.
+	if _, err = idx.Query("test", `"unclosed quote`, "", 10); err != nil {
+		t.Fatalf("Query() with unbalanced quote error: %v", err)
+	}
+}
+
 func TestIndexRecoverFromCorruption(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := filepath.Join(dir, "test.bleve")
