@@ -44,6 +44,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	globalPath := flag.String("global", "", "Path to a global knowledge store shared across all projects")
 	indexOverride := flag.String("index", "", "Override the search index location")
+	storeDir := flag.String("store", "", "Central directory for all knowledge stores; in-tree .agents/ is ignored when set")
 	flag.Var(&roots, "root", "Org root whose immediate children are projects (repeatable)")
 	flag.Var(&projs, "project", "Single project root (repeatable)")
 	flag.Parse()
@@ -58,7 +59,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	resolver, warnings, err := projects.Build([]string(roots), []string(projs), *globalPath)
+	resolver, warnings, err := projects.BuildWithStore([]string(roots), []string(projs), *globalPath, *storeDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -67,7 +68,7 @@ func main() {
 		log.Printf("warning: %s", w)
 	}
 
-	indexBasePath, err := indexLocation(*indexOverride, "", roots, projs, resolver.Entries())
+	indexBasePath, err := indexLocation(*indexOverride, *storeDir, roots, projs, resolver.Entries())
 	if err != nil {
 		log.Fatalf("determine index location: %v", err)
 	}
@@ -226,19 +227,18 @@ func indexAll(res *projects.Resolver, idx *search.Index) {
 	for _, ref := range res.Snapshot() {
 		switch ref.Kind {
 		case projects.KindProject:
-			indexProjectKnowledge(ref.Path, ref.Address, idx)
+			indexProjectKnowledge(res.AgentsDir(ref), ref.Address, idx)
 		case projects.KindOrg:
-			indexOrgKnowledge(ref.Path, ref.Name, idx)
+			indexOrgKnowledge(res.OrgKnowledgeDir(ref), ref.Name, idx)
 		case projects.KindGlobal:
-			indexProjectKnowledge(ref.Path, ref.Address, idx)
+			indexProjectKnowledge(res.AgentsDir(ref), ref.Address, idx)
 		}
 	}
 }
 
-// indexProjectKnowledge indexes all knowledge files in a single project
+// indexProjectKnowledge indexes all knowledge files under an agents dir
 // under the given addressing name.
-func indexProjectKnowledge(projectPath, projectName string, idx *search.Index) {
-	agentsDir := filepath.Join(projectPath, ".agents")
+func indexProjectKnowledge(agentsDir, projectName string, idx *search.Index) {
 	for _, cat := range knowledge.ValidCategories() {
 		catPath := knowledge.CategoryFilePath(agentsDir, cat)
 		kf, err := knowledge.Load(catPath)
@@ -260,13 +260,12 @@ func indexProjectKnowledge(projectPath, projectName string, idx *search.Index) {
 	}
 }
 
-// indexOrgKnowledge indexes an org root's .agents/knowledge/ files as
-// individual markdown sections, so queries return only the relevant
-// section instead of the entire document.
-func indexOrgKnowledge(root, orgName string, idx *search.Index) {
-	orgAgentsDir := filepath.Join(root, ".agents", "knowledge")
+// indexOrgKnowledge indexes an org's knowledge files as individual markdown
+// sections, so queries return only the relevant section instead of the
+// entire document.
+func indexOrgKnowledge(knowledgeDir, orgName string, idx *search.Index) {
 	for _, catFile := range []string{"architecture.md", "review.md"} {
-		filePath := filepath.Join(orgAgentsDir, catFile)
+		filePath := filepath.Join(knowledgeDir, catFile)
 		data, err := os.ReadFile(filePath)
 		if err != nil {
 			continue
