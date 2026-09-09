@@ -383,6 +383,11 @@ func (r *Resolver) underStore(path string) bool {
 	return pathWithin(path, r.store)
 }
 
+// StoreEnabled reports whether a central store is configured.
+func (r *Resolver) StoreEnabled() bool {
+	return r.store != ""
+}
+
 // AgentsDir returns the knowledge directory for a ref: its in-tree
 // .agents/ when no store is configured, or its slot in the central store.
 // The global store is never re-rooted.

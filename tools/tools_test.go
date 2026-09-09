@@ -1298,3 +1298,68 @@ func TestUpdateInCentralStore(t *testing.T) {
 		t.Errorf("summary = %q, want %q", loaded.Entries[0].Summary, "after")
 	}
 }
+
+func TestInitTargetsCentralStore(t *testing.T) {
+	root := t.TempDir()
+	proj := filepath.Join(root, "proj")
+	knowledge.EnsureDir(proj)
+	store := filepath.Join(t.TempDir(), "store")
+	knowledge.EnsureDir(store)
+
+	resolver, _, err := projects.BuildWithStore([]string{root}, nil, "", store)
+	if err != nil {
+		t.Fatalf("BuildWithStore() error: %v", err)
+	}
+
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{"project_path": proj}
+	result, err := InitHandler(resolver)(context.Background(), req)
+	if err != nil {
+		t.Fatalf("init error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("init returned error: %v", extractTextContent(t, result))
+	}
+
+	want := filepath.Join(store, "proj", ".agents")
+	if !knowledge.FileExists(knowledge.CategoryFilePath(want, "conventions")) {
+		t.Errorf("store not initialized at %s", want)
+	}
+	if knowledge.FileExists(filepath.Join(proj, ".agents", "conventions.yaml")) {
+		t.Error("init must not create in-tree .agents under --store")
+	}
+	content := extractTextContent(t, result)
+	if !strings.Contains(content, want) {
+		t.Errorf("result should report the store path %q, got: %s", want, content)
+	}
+}
+
+func TestInitUnresolvableUnderStore(t *testing.T) {
+	root := t.TempDir()
+	other := filepath.Join(t.TempDir(), "elsewhere")
+	knowledge.EnsureDir(other)
+	store := filepath.Join(t.TempDir(), "store")
+	knowledge.EnsureDir(store)
+
+	resolver, _, err := projects.BuildWithStore([]string{root}, nil, "", store)
+	if err != nil {
+		t.Fatalf("BuildWithStore() error: %v", err)
+	}
+
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{"project_path": other}
+	result, err := InitHandler(resolver)(context.Background(), req)
+	if err != nil {
+		t.Fatalf("init error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("unresolvable init under --store must return an error")
+	}
+	content := extractTextContent(t, result)
+	if !strings.Contains(content, "--store") {
+		t.Errorf("error should explain --store, got: %s", content)
+	}
+	if knowledge.FileExists(filepath.Join(other, ".agents")) {
+		t.Error("unresolvable init must not write in-tree .agents under --store")
+	}
+}
