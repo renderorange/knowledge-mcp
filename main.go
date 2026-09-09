@@ -67,7 +67,7 @@ func main() {
 		log.Printf("warning: %s", w)
 	}
 
-	indexBasePath, err := indexLocation(*indexOverride, roots, projs, resolver.Entries())
+	indexBasePath, err := indexLocation(*indexOverride, "", roots, projs, resolver.Entries())
 	if err != nil {
 		log.Fatalf("determine index location: %v", err)
 	}
@@ -325,12 +325,15 @@ func splitSections(data string) [][2]string {
 	return sections
 }
 
-// indexLocation picks the bleve index path: explicit override, legacy
-// per-config locations for single-entry configs, or a hashed XDG state
-// dir for multi-entry configs.
-func indexLocation(override string, roots, projs pathList, canonicalEntries []string) (string, error) {
+// indexLocation picks the bleve index path: explicit override, a --store
+// default (<store>/.index), legacy per-config locations for single-entry
+// configs, or a hashed XDG state dir for multi-entry configs.
+func indexLocation(override, store string, roots, projs pathList, canonicalEntries []string) (string, error) {
 	if override != "" {
 		return filepath.Abs(override)
+	}
+	if store != "" {
+		return filepath.Join(store, ".index"), nil
 	}
 	if len(roots)+len(projs) == 1 {
 		single := roots
