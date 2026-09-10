@@ -31,8 +31,11 @@ func InitHandler(res *projects.Resolver) func(context.Context, mcp.CallToolReque
 		if res != nil && res.StoreEnabled() {
 			ref, ok := res.RefForPath(projectPath)
 			if !ok && res.Covers(projectPath) {
-				if resolved, resolveErr := res.Resolve(filepath.Base(projectPath)); resolveErr == nil {
-					ref, ok = resolved, true
+				if resolved, resolveErr := res.Resolve(filepath.Base(projectPath)); resolveErr == nil &&
+					resolved.Kind == projects.KindProject {
+					if want, wantOk := projects.CanonicalPath(projectPath); wantOk && resolved.Path == want {
+						ref, ok = resolved, true
+					}
 				}
 			}
 			if !ok {

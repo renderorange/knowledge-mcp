@@ -576,3 +576,74 @@ func TestExplicitProjectInsideStoreKept(t *testing.T) {
 		t.Errorf("expected explicit-project warning, got %v", warnings)
 	}
 }
+
+func TestBuildWithStoreNoInTreeWarningForStoreSlot(t *testing.T) {
+	store := mkdir(t, t.TempDir(), "store")
+
+	// Explicit project inside the store whose slot IS its in-tree dir.
+	proj := mkdir(t, store, "foo")
+	mkdir(t, proj, ".agents")
+
+	res, warnings, err := BuildWithStore(nil, []string{proj}, "", store)
+	if err != nil {
+		t.Fatalf("BuildWithStore() error: %v", err)
+	}
+	for _, w := range warnings {
+		if strings.Contains(w, "ignoring in-tree .agents") {
+			t.Errorf("must not warn when the store slot is the in-tree dir: %q", w)
+		}
+	}
+	ref, err := res.Resolve("foo")
+	if err != nil {
+		t.Fatalf("Resolve(foo) error: %v", err)
+	}
+	if want := filepath.Join(proj, ".agents"); res.AgentsDir(ref) != want {
+		t.Errorf("AgentsDir = %q, want %q", res.AgentsDir(ref), want)
+	}
+
+	// Org root inside the store whose slot IS its in-tree knowledge dir.
+	orgRoot := mkdir(t, store, "org")
+	mkdir(t, orgRoot, ".agents", "knowledge")
+	_, warnings, err = BuildWithStore([]string{orgRoot}, nil, "", store)
+	if err != nil {
+		t.Fatalf("BuildWithStore(org) error: %v", err)
+	}
+	for _, w := range warnings {
+		if strings.Contains(w, "ignoring in-tree org knowledge") {
+			t.Errorf("must not warn when the org slot is the in-tree dir: %q", w)
+		}
+	}
+}
+
+func TestBuildWithStoreSkipsIndexChild(t *testing.T) {
+	root := t.TempDir()
+	mkdir(t, root, "proj")
+	mkdir(t, root, ".index")
+	store := mkdir(t, t.TempDir(), "store")
+
+	res, warnings, err := BuildWithStore([]string{root}, nil, "", store)
+	if err != nil {
+		t.Fatalf("BuildWithStore() error: %v", err)
+	}
+	if _, err := res.Resolve(".index"); err == nil {
+		t.Error("a child named .index must not become a project in store mode: its slot would live inside the removable index directory")
+	}
+	warned := false
+	for _, w := range warnings {
+		if strings.Contains(w, ".index") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("expected a .index collision warning, got %v", warnings)
+	}
+
+	// Without a store, a real project named .index stays resolvable.
+	plain, _, err := Build([]string{root}, nil, "")
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+	if _, err := plain.Resolve(".index"); err != nil {
+		t.Errorf("non-store mode must keep .index as a project: %v", err)
+	}
+}

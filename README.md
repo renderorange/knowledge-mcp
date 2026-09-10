@@ -108,6 +108,8 @@ Layout:
 - `init_knowledge` initializes the central store for resolvable paths and
   errors for others (add them via `--project`/`--root` first).
 - The store directory itself must exist and is never created for you.
+- The store is single-writer: its search index and files do not support
+  concurrent access, so point only one server at a store.
 
 ### Shared global store
 

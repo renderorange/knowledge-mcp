@@ -1334,6 +1334,75 @@ func TestInitTargetsCentralStore(t *testing.T) {
 	}
 }
 
+func TestGlobalOpsUnderStore(t *testing.T) {
+	root := t.TempDir()
+	proj := filepath.Join(root, "proj")
+	knowledge.EnsureDir(filepath.Join(proj, ".agents"))
+	globalDir := t.TempDir()
+	knowledge.EnsureDir(filepath.Join(globalDir, ".agents"))
+	store := filepath.Join(t.TempDir(), "store")
+	knowledge.EnsureDir(store)
+
+	resolver, _, err := projects.BuildWithStore([]string{root}, nil, globalDir, store)
+	if err != nil {
+		t.Fatalf("BuildWithStore() error: %v", err)
+	}
+
+	write := WriteHandler(resolver, nil)
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{
+		"project": "_global", "category": "conventions",
+		"summary": "global under store", "detail": "global detail", "source": "test",
+	}
+	result, err := write(context.Background(), req)
+	if err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("write error result: %v", extractTextContent(t, result))
+	}
+
+	globalCat := knowledge.CategoryFilePath(filepath.Join(globalDir, ".agents"), "conventions")
+	if !knowledge.FileExists(globalCat) {
+		t.Fatal("write to _global must land in the global store")
+	}
+	if knowledge.FileExists(filepath.Join(store, "_global", ".agents", "conventions.yaml")) {
+		t.Error("write to _global must not create a _global slot in the central store")
+	}
+
+	update := UpdateHandler(resolver, nil)
+	uReq := mcp.CallToolRequest{}
+	uReq.Params.Arguments = map[string]interface{}{
+		"project": "_global", "category": "conventions", "id": "conv-001", "summary": "updated global under store",
+	}
+	uResult, err := update(context.Background(), uReq)
+	if err != nil {
+		t.Fatalf("update error: %v", err)
+	}
+	if uResult.IsError {
+		t.Fatalf("update error result: %v", extractTextContent(t, uResult))
+	}
+	loaded, loadErr := knowledge.Load(globalCat)
+	if loadErr != nil {
+		t.Fatalf("load global file: %v", loadErr)
+	}
+	if loaded.Entries[0].Summary != "updated global under store" {
+		t.Errorf("summary = %q, want %q", loaded.Entries[0].Summary, "updated global under store")
+	}
+
+	list := ListHandler(resolver, nil)
+	lReq := mcp.CallToolRequest{}
+	lReq.Params.Arguments = map[string]interface{}{"project": "_global"}
+	lResult, err := list(context.Background(), lReq)
+	if err != nil {
+		t.Fatalf("list error: %v", err)
+	}
+	content := extractTextContent(t, lResult)
+	if !strings.Contains(content, "updated global under store") {
+		t.Errorf("list _global should show the global entry: %s", content)
+	}
+}
+
 func TestInitUnresolvableUnderStore(t *testing.T) {
 	root := t.TempDir()
 	other := filepath.Join(t.TempDir(), "elsewhere")
@@ -1362,4 +1431,113 @@ func TestInitUnresolvableUnderStore(t *testing.T) {
 	if knowledge.FileExists(filepath.Join(other, ".agents")) {
 		t.Error("unresolvable init must not write in-tree .agents under --store")
 	}
+}
+
+func TestInitStoreFallbackPathVerified(t *testing.T) {
+	t.Run("same name in another root must not bind", func(t *testing.T) {
+		r1 := t.TempDir()
+		r2 := t.TempDir()
+		existing := filepath.Join(r2, "api")
+		knowledge.EnsureDir(existing) // registered at build with unique bare name "api"
+
+		store := filepath.Join(t.TempDir(), "store")
+		knowledge.EnsureDir(store)
+
+		resolver, _, err := projects.BuildWithStore([]string{r1, r2}, nil, "", store)
+		if err != nil {
+			t.Fatalf("BuildWithStore() error: %v", err)
+		}
+
+		created := filepath.Join(r1, "api")
+		knowledge.EnsureDir(created) // created after startup, covered by r1
+
+		req := mcp.CallToolRequest{}
+		req.Params.Arguments = map[string]interface{}{"project_path": created}
+		result, err := InitHandler(resolver)(context.Background(), req)
+		if err != nil {
+			t.Fatalf("init error: %v", err)
+		}
+		if !result.IsError {
+			t.Fatal("init for a path covered but not resolvable must reject, not write another root's slot")
+		}
+		content := extractTextContent(t, result)
+		if !strings.Contains(content, "--store") {
+			t.Errorf("error should explain --store, got: %s", content)
+		}
+		if knowledge.FileExists(filepath.Join(store, "api", ".agents")) {
+			t.Error("init must not write into the other root's store slot")
+		}
+		if knowledge.FileExists(filepath.Join(created, ".agents")) {
+			t.Error("init must not fall back to in-tree .agents under --store")
+		}
+	})
+
+	t.Run("org ref must not hijack init", func(t *testing.T) {
+		orgRoot := filepath.Join(t.TempDir(), "api")
+		knowledge.EnsureDir(orgRoot)
+
+		store := filepath.Join(t.TempDir(), "store")
+		knowledge.EnsureDir(store)
+		// Org ref for "api" exists on the store side.
+		knowledge.EnsureDir(filepath.Join(store, "api", ".agents", "knowledge"))
+
+		resolver, _, err := projects.BuildWithStore([]string{orgRoot}, nil, "", store)
+		if err != nil {
+			t.Fatalf("BuildWithStore() error: %v", err)
+		}
+
+		created := filepath.Join(orgRoot, "api")
+		knowledge.EnsureDir(created) // a project path under the root named like the org
+
+		req := mcp.CallToolRequest{}
+		req.Params.Arguments = map[string]interface{}{"project_path": created}
+		result, err := InitHandler(resolver)(context.Background(), req)
+		if err != nil {
+			t.Fatalf("init error: %v", err)
+		}
+		if !result.IsError {
+			t.Fatal("init must reject when bare-name resolution selects an unrelated org ref")
+		}
+		content := extractTextContent(t, result)
+		if strings.Contains(content, "org roots have no per-project store") {
+			t.Errorf("error must not blame the unrelated org ref, got: %s", content)
+		}
+		if !strings.Contains(content, "--store") {
+			t.Errorf("error should explain --store, got: %s", content)
+		}
+		if knowledge.FileExists(filepath.Join(created, ".agents")) {
+			t.Error("init must not write in-tree .agents under --store")
+		}
+	})
+
+	t.Run("new project under a root still initializes", func(t *testing.T) {
+		root := t.TempDir()
+		store := filepath.Join(t.TempDir(), "store")
+		knowledge.EnsureDir(store)
+
+		resolver, _, err := projects.BuildWithStore([]string{root}, nil, "", store)
+		if err != nil {
+			t.Fatalf("BuildWithStore() error: %v", err)
+		}
+
+		created := filepath.Join(root, "api")
+		knowledge.EnsureDir(created) // created after startup
+
+		req := mcp.CallToolRequest{}
+		req.Params.Arguments = map[string]interface{}{"project_path": created}
+		result, err := InitHandler(resolver)(context.Background(), req)
+		if err != nil {
+			t.Fatalf("init error: %v", err)
+		}
+		if result.IsError {
+			t.Fatalf("init returned error: %v", extractTextContent(t, result))
+		}
+		want := filepath.Join(store, "api", ".agents")
+		if !knowledge.FileExists(knowledge.CategoryFilePath(want, "conventions")) {
+			t.Errorf("store not initialized at %s", want)
+		}
+		if knowledge.FileExists(filepath.Join(created, ".agents", "conventions.yaml")) {
+			t.Error("init must not create in-tree .agents under --store")
+		}
+	})
 }

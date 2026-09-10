@@ -132,6 +132,12 @@ func BuildWithStore(roots, projects []string, global, store string) (*Resolver, 
 					child.Name, rp))
 				continue
 			}
+			if storePath != "" && child.Name == ".index" {
+				warnings = append(warnings, fmt.Sprintf(
+					"skipping %s under root %s: name collides with the --store index directory",
+					child.Name, rp))
+				continue
+			}
 			refs = append(refs, child)
 		}
 		if hasOrgKnowledge(rp, storePath) {
@@ -245,13 +251,21 @@ func BuildWithStore(roots, projects []string, global, store string) (*Resolver, 
 		for _, ref := range r.refs {
 			switch ref.Kind {
 			case KindProject:
-				info, err := os.Stat(filepath.Join(ref.Path, ".agents"))
+				inTree := filepath.Join(ref.Path, ".agents")
+				if r.AgentsDir(ref) == inTree {
+					continue
+				}
+				info, err := os.Stat(inTree)
 				if err == nil && info.IsDir() {
 					warnings = append(warnings, fmt.Sprintf(
 						"ignoring in-tree .agents at %s (--store is set)", ref.Path))
 				}
 			case KindOrg:
-				info, err := os.Stat(filepath.Join(ref.Path, ".agents", "knowledge"))
+				inTree := filepath.Join(ref.Path, ".agents", "knowledge")
+				if r.OrgKnowledgeDir(ref) == inTree {
+					continue
+				}
+				info, err := os.Stat(inTree)
 				if err == nil && info.IsDir() {
 					warnings = append(warnings, fmt.Sprintf(
 						"ignoring in-tree org knowledge at %s (--store is set)", ref.Path))
@@ -413,6 +427,12 @@ func (r *Resolver) RefForPath(path string) (Ref, bool) {
 	return ref, ok
 }
 
+// CanonicalPath returns the canonical absolute form of path when it names
+// an existing directory (symlinks resolved); otherwise ok is false.
+func CanonicalPath(path string) (string, bool) {
+	return canonicalize(path)
+}
+
 // pathWithin reports whether path equals dir or lies under it.
 func pathWithin(path, dir string) bool {
 	return path == dir || strings.HasPrefix(path, dir+string(filepath.Separator))
@@ -421,7 +441,7 @@ func pathWithin(path, dir string) bool {
 func (r *Resolver) resolveDynamicBare(name string) (Ref, bool) {
 	for _, root := range r.roots {
 		path := filepath.Join(root, name)
-		if info, err := os.Stat(path); err == nil && info.IsDir() && !r.underStore(path) {
+		if info, err := os.Stat(path); err == nil && info.IsDir() && r.dynamicPathOK(path, name) {
 			return Ref{
 				Name: name, Qualifier: filepath.Base(root),
 				Path: path, Kind: KindProject, Address: name,
@@ -439,7 +459,7 @@ func (r *Resolver) resolveDynamicQualified(name string) (Ref, bool) {
 			continue
 		}
 		path := filepath.Join(root, base)
-		if info, err := os.Stat(path); err == nil && info.IsDir() && !r.underStore(path) {
+		if info, err := os.Stat(path); err == nil && info.IsDir() && r.dynamicPathOK(path, base) {
 			return Ref{
 				Name: base, Qualifier: qualifier,
 				Path: path, Kind: KindProject, Address: name,
@@ -447,6 +467,20 @@ func (r *Resolver) resolveDynamicQualified(name string) (Ref, bool) {
 		}
 	}
 	return Ref{}, false
+}
+
+// dynamicPathOK reports whether a path found on disk after startup is
+// eligible for dynamic resolution: paths under the central store are
+// never resurrected, and a child named .index is excluded in store mode
+// because its slot would live inside the removable index directory.
+func (r *Resolver) dynamicPathOK(path, name string) bool {
+	if r.underStore(path) {
+		return false
+	}
+	if r.store != "" && name == ".index" {
+		return false
+	}
+	return true
 }
 
 // ScanRoot returns refs for the immediate child directories of root,
