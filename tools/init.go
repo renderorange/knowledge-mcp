@@ -26,6 +26,28 @@ func InitHandler(res *projects.Resolver) func(context.Context, mcp.CallToolReque
 		}
 
 		agentsDir := filepath.Join(projectPath, ".agents")
+		resolvable := res != nil && res.Covers(projectPath)
+
+		if res != nil && res.StoreEnabled() {
+			ref, ok := res.RefForPath(projectPath)
+			if !ok && res.Covers(projectPath) {
+				if resolved, resolveErr := res.Resolve(filepath.Base(projectPath)); resolveErr == nil &&
+					resolved.Kind == projects.KindProject {
+					if want, wantOk := projects.CanonicalPath(projectPath); wantOk && resolved.Path == want {
+						ref, ok = resolved, true
+					}
+				}
+			}
+			if !ok {
+				return mcp.NewToolResultError(
+					"init_knowledge targets the central store under --store; add this project via --project or --root and restart"), nil
+			}
+			if ref.Kind == projects.KindOrg {
+				return mcp.NewToolResultError("org roots have no per-project store"), nil
+			}
+			agentsDir = res.AgentsDir(ref)
+			resolvable = true
+		}
 
 		if err := knowledge.EnsureDir(agentsDir); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("create directory: %v", err)), nil
@@ -69,19 +91,17 @@ func InitHandler(res *projects.Resolver) func(context.Context, mcp.CallToolReque
 			}
 		}
 
-		resolvable := res != nil && res.Covers(projectPath)
-
 		if len(created) == 0 {
 			if resolvable {
-				return mcp.NewToolResultText("already initialized — .agents/ exists with all files"), nil
+				return mcp.NewToolResultText(fmt.Sprintf("already initialized — %s exists with all files", agentsDir)), nil
 			}
-			return mcp.NewToolResultText("already initialized — .agents/ exists with all files\nwarning: this path is not under any configured root/project; add it via --project or --root and restart to make it queryable"), nil
+			return mcp.NewToolResultText(fmt.Sprintf("already initialized — %s exists with all files\nwarning: this path is not under any configured root/project; add it via --project or --root and restart to make it queryable", agentsDir)), nil
 		}
 
 		if resolvable {
-			return mcp.NewToolResultText(fmt.Sprintf("initialized .agents/ with: %v", created)), nil
+			return mcp.NewToolResultText(fmt.Sprintf("initialized %s with: %v", agentsDir, created)), nil
 		}
 		return mcp.NewToolResultText(fmt.Sprintf(
-			"initialized .agents/ with: %v\nwarning: this path is not under any configured root/project; add it via --project or --root and restart to make it queryable", created)), nil
+			"initialized %s with: %v\nwarning: this path is not under any configured root/project; add it via --project or --root and restart to make it queryable", agentsDir, created)), nil
 	}
 }

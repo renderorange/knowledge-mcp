@@ -354,6 +354,107 @@ func TestFullWorkflow(t *testing.T) {
 	}
 }
 
+func TestStoreModeEndToEnd(t *testing.T) {
+	root := t.TempDir()
+	proj := filepath.Join(root, "proj")
+	os.MkdirAll(proj, 0755)
+
+	// Seed an in-tree store that must be ignored under --store.
+	agentsDir := filepath.Join(proj, ".agents")
+	os.MkdirAll(agentsDir, 0755)
+	inTree := &knowledge.KnowledgeFile{
+		Project: "proj", Version: 1,
+		Entries: []knowledge.Entry{
+			{ID: "conv-001", Summary: "stale in-tree entry", Source: "test", Date: knowledge.Today()},
+		},
+	}
+	if err := knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), inTree); err != nil {
+		t.Fatalf("seed in-tree store: %v", err)
+	}
+
+	store := t.TempDir()
+	resolver, warnings, err := projects.BuildWithStore([]string{root}, nil, "", store)
+	if err != nil {
+		t.Fatalf("BuildWithStore() error: %v", err)
+	}
+
+	warned := false
+	for _, w := range warnings {
+		if strings.Contains(w, "ignoring in-tree .agents") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("expected in-tree ignore warning, got %v", warnings)
+	}
+
+	idx, err := search.NewIndex(filepath.Join(store, ".index"), []string{"proj"})
+	if err != nil {
+		t.Fatalf("NewIndex() error: %v", err)
+	}
+	defer idx.Close()
+
+	// Init writes into the store.
+	initReq := mcp.CallToolRequest{}
+	initReq.Params.Arguments = map[string]interface{}{"project_path": proj}
+	initResult, err := InitHandler(resolver)(context.Background(), initReq)
+	if err != nil {
+		t.Fatalf("init error: %v", err)
+	}
+	if initResult.IsError {
+		t.Fatalf("init returned error: %v", extractTextContent(t, initResult))
+	}
+	if !knowledge.FileExists(filepath.Join(store, "proj", ".agents", "conventions.yaml")) {
+		t.Fatal("init did not create the central store")
+	}
+
+	// Write goes to the store.
+	writeHandler := WriteHandler(resolver, idx)
+	writeReq := mcp.CallToolRequest{}
+	writeReq.Params.Arguments = map[string]interface{}{
+		"project":  "proj",
+		"category": "conventions",
+		"summary":  "fresh central entry",
+		"detail":   "centralized reverb parameters",
+		"source":   "test",
+	}
+	if _, err := writeHandler(context.Background(), writeReq); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	// Query hits the store entry, not the in-tree one.
+	queryHandler := QueryHandler(resolver, idx)
+	queryReq := mcp.CallToolRequest{}
+	queryReq.Params.Arguments = map[string]interface{}{"project": "proj", "query": "reverb"}
+	queryResult, err := queryHandler(context.Background(), queryReq)
+	if err != nil {
+		t.Fatalf("query error: %v", err)
+	}
+	queryContent := extractTextContent(t, queryResult)
+	if !strings.Contains(queryContent, "fresh central entry") {
+		t.Errorf("query should find the central entry, got: %s", queryContent)
+	}
+	if strings.Contains(queryContent, "stale in-tree entry") {
+		t.Error("query must not find in-tree entries under --store")
+	}
+
+	// List shows the store entry only.
+	listHandler := ListHandler(resolver, idx)
+	listReq := mcp.CallToolRequest{}
+	listReq.Params.Arguments = map[string]interface{}{"project": "proj"}
+	listResult, err := listHandler(context.Background(), listReq)
+	if err != nil {
+		t.Fatalf("list error: %v", err)
+	}
+	listContent := extractTextContent(t, listResult)
+	if !strings.Contains(listContent, "fresh central entry") {
+		t.Errorf("list should show the central entry, got: %s", listContent)
+	}
+	if strings.Contains(listContent, "stale in-tree entry") {
+		t.Error("list must not show in-tree entries under --store")
+	}
+}
+
 // extractTextContent extracts the text content from an MCP tool result.
 func extractTextContent(t *testing.T, result *mcp.CallToolResult) string {
 	t.Helper()

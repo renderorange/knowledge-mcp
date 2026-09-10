@@ -50,13 +50,16 @@ type Resolver struct {
 	roots     []string
 	explicit  []string
 	global    string // path to global knowledge store (empty if none)
+	store     string // central store dir (empty if disabled)
 }
 
-// Build constructs a resolver from org roots, explicit project paths, and an
-// optional global knowledge path. It returns startup warnings for ambiguous
-// names and path overlaps. It returns an error for unresolvable configurations:
-// nonexistent or non-directory paths, empty values, and duplicate root basenames.
-func Build(roots, projects []string, global string) (*Resolver, []string, error) {
+// BuildWithStore constructs a resolver from org roots, explicit project
+// paths, an optional global knowledge path, and an optional central store
+// directory. When store is non-empty, project and org knowledge dirs are
+// rooted under it (see AgentsDir/OrgKnowledgeDir), in-tree .agents/ dirs
+// are ignored with warnings, and discovered refs inside the store dir are
+// excluded from discovery.
+func BuildWithStore(roots, projects []string, global, store string) (*Resolver, []string, error) {
 	var warnings []string
 
 	rootPaths, err := canonicalAll(roots, "root")
@@ -70,6 +73,15 @@ func Build(roots, projects []string, global string) (*Resolver, []string, error)
 
 	rootPaths = dedupePaths(rootPaths, &warnings, "root")
 	projPaths = dedupePaths(projPaths, &warnings, "project")
+
+	storePath := ""
+	if store != "" {
+		stored, err := canonicalAll([]string{store}, "store")
+		if err != nil {
+			return nil, nil, err
+		}
+		storePath = stored[0]
+	}
 
 	// Root basenames must be unique: they qualify project names.
 	seenRoots := map[string]string{}
@@ -96,6 +108,10 @@ func Build(roots, projects []string, global string) (*Resolver, []string, error)
 
 	var refs []Ref
 	for _, pp := range projPaths {
+		if storePath != "" && pathWithin(pp, storePath) {
+			warnings = append(warnings, fmt.Sprintf(
+				"explicit project %s is inside the --store directory", pp))
+		}
 		refs = append(refs, Ref{
 			Name:      filepath.Base(pp),
 			Qualifier: filepath.Base(filepath.Dir(pp)),
@@ -109,13 +125,30 @@ func Build(roots, projects []string, global string) (*Resolver, []string, error)
 			return nil, nil, fmt.Errorf("scan root %q: %w", rp, err)
 		}
 		warnings = append(warnings, childWarnings...)
-		refs = append(refs, children...)
-		if hasOrgKnowledge(rp) {
+		for _, child := range children {
+			if storePath != "" && pathWithin(child.Path, storePath) {
+				warnings = append(warnings, fmt.Sprintf(
+					"skipping %s under root %s: inside the --store directory",
+					child.Name, rp))
+				continue
+			}
+			if storePath != "" && child.Name == ".index" {
+				warnings = append(warnings, fmt.Sprintf(
+					"skipping %s under root %s: name collides with the --store index directory",
+					child.Name, rp))
+				continue
+			}
+			refs = append(refs, child)
+		}
+		if hasOrgKnowledge(rp, storePath) {
 			refs = append(refs, Ref{
 				Name: filepath.Base(rp),
 				Path: rp,
 				Kind: KindOrg,
 			})
+		} else if storePath != "" && hasOrgKnowledge(rp, "") {
+			warnings = append(warnings, fmt.Sprintf(
+				"ignoring in-tree org knowledge at %s (--store is set)", rp))
 		}
 	}
 
@@ -152,6 +185,7 @@ func Build(roots, projects []string, global string) (*Resolver, []string, error)
 		roots:     rootPaths,
 		explicit:  projPaths,
 		global:    global,
+		store:     storePath,
 	}
 
 	// Dedupe by path; project kind wins over org kind.
@@ -201,6 +235,7 @@ func Build(roots, projects []string, global string) (*Resolver, []string, error)
 			ref.Address = ref.Qualifier + "/" + ref.Name
 		}
 		r.byBare[ref.Name] = append(r.byBare[ref.Name], *ref)
+		r.byPath[ref.Path] = *ref
 	}
 
 	// Address collisions should be impossible after the checks above;
@@ -210,6 +245,33 @@ func Build(roots, projects []string, global string) (*Resolver, []string, error)
 			return nil, nil, fmt.Errorf("addressing name collision: %q", ref.Address)
 		}
 		r.byAddress[ref.Address] = ref
+	}
+
+	if storePath != "" {
+		for _, ref := range r.refs {
+			switch ref.Kind {
+			case KindProject:
+				inTree := filepath.Join(ref.Path, ".agents")
+				if r.AgentsDir(ref) == inTree {
+					continue
+				}
+				info, err := os.Stat(inTree)
+				if err == nil && info.IsDir() {
+					warnings = append(warnings, fmt.Sprintf(
+						"ignoring in-tree .agents at %s (--store is set)", ref.Path))
+				}
+			case KindOrg:
+				inTree := filepath.Join(ref.Path, ".agents", "knowledge")
+				if r.OrgKnowledgeDir(ref) == inTree {
+					continue
+				}
+				info, err := os.Stat(inTree)
+				if err == nil && info.IsDir() {
+					warnings = append(warnings, fmt.Sprintf(
+						"ignoring in-tree org knowledge at %s (--store is set)", ref.Path))
+				}
+			}
+		}
 	}
 
 	// Warn about ambiguous bare names.
@@ -222,6 +284,12 @@ func Build(roots, projects []string, global string) (*Resolver, []string, error)
 	}
 
 	return r, warnings, nil
+}
+
+// Build constructs a resolver without a central store (in-tree .agents/
+// stores, the original behavior).
+func Build(roots, projects []string, global string) (*Resolver, []string, error) {
+	return BuildWithStore(roots, projects, global, "")
 }
 
 // Resolve maps a bare or qualified name to a Ref. Unknown names and
@@ -321,10 +389,59 @@ func (r *Resolver) Covers(path string) bool {
 	return false
 }
 
+// underStore reports whether a path is at or under r.store.
+func (r *Resolver) underStore(path string) bool {
+	if r.store == "" {
+		return false
+	}
+	return pathWithin(path, r.store)
+}
+
+// StoreEnabled reports whether a central store is configured.
+func (r *Resolver) StoreEnabled() bool {
+	return r.store != ""
+}
+
+// AgentsDir returns the knowledge directory for a ref: its in-tree
+// .agents/ when no store is configured, or its slot in the central store.
+// The global store is never re-rooted.
+func (r *Resolver) AgentsDir(ref Ref) string {
+	if r.store != "" && ref.Kind != KindGlobal {
+		return filepath.Join(r.store, ref.Address, ".agents")
+	}
+	return filepath.Join(ref.Path, ".agents")
+}
+
+// OrgKnowledgeDir returns the org-level knowledge directory for an org ref.
+func (r *Resolver) OrgKnowledgeDir(ref Ref) string {
+	return filepath.Join(r.AgentsDir(ref), "knowledge")
+}
+
+// RefForPath returns the ref registered for an exact canonical path.
+func (r *Resolver) RefForPath(path string) (Ref, bool) {
+	resolved, ok := canonicalize(path)
+	if !ok {
+		return Ref{}, false
+	}
+	ref, ok := r.byPath[resolved]
+	return ref, ok
+}
+
+// CanonicalPath returns the canonical absolute form of path when it names
+// an existing directory (symlinks resolved); otherwise ok is false.
+func CanonicalPath(path string) (string, bool) {
+	return canonicalize(path)
+}
+
+// pathWithin reports whether path equals dir or lies under it.
+func pathWithin(path, dir string) bool {
+	return path == dir || strings.HasPrefix(path, dir+string(filepath.Separator))
+}
+
 func (r *Resolver) resolveDynamicBare(name string) (Ref, bool) {
 	for _, root := range r.roots {
 		path := filepath.Join(root, name)
-		if info, err := os.Stat(path); err == nil && info.IsDir() {
+		if info, err := os.Stat(path); err == nil && info.IsDir() && r.dynamicPathOK(path, name) {
 			return Ref{
 				Name: name, Qualifier: filepath.Base(root),
 				Path: path, Kind: KindProject, Address: name,
@@ -342,7 +459,7 @@ func (r *Resolver) resolveDynamicQualified(name string) (Ref, bool) {
 			continue
 		}
 		path := filepath.Join(root, base)
-		if info, err := os.Stat(path); err == nil && info.IsDir() {
+		if info, err := os.Stat(path); err == nil && info.IsDir() && r.dynamicPathOK(path, base) {
 			return Ref{
 				Name: base, Qualifier: qualifier,
 				Path: path, Kind: KindProject, Address: name,
@@ -350,6 +467,20 @@ func (r *Resolver) resolveDynamicQualified(name string) (Ref, bool) {
 		}
 	}
 	return Ref{}, false
+}
+
+// dynamicPathOK reports whether a path found on disk after startup is
+// eligible for dynamic resolution: paths under the central store are
+// never resurrected, and a child named .index is excluded in store mode
+// because its slot would live inside the removable index directory.
+func (r *Resolver) dynamicPathOK(path, name string) bool {
+	if r.underStore(path) {
+		return false
+	}
+	if r.store != "" && name == ".index" {
+		return false
+	}
+	return true
 }
 
 // ScanRoot returns refs for the immediate child directories of root,
@@ -387,8 +518,12 @@ func ScanRoot(root string) ([]Ref, []string, error) {
 	return refs, warnings, nil
 }
 
-func hasOrgKnowledge(root string) bool {
-	info, err := os.Stat(filepath.Join(root, ".agents", "knowledge"))
+func hasOrgKnowledge(root, store string) bool {
+	knowledgePath := filepath.Join(root, ".agents", "knowledge")
+	if store != "" {
+		knowledgePath = filepath.Join(store, filepath.Base(root), ".agents", "knowledge")
+	}
+	info, err := os.Stat(knowledgePath)
 	return err == nil && info.IsDir()
 }
 

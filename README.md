@@ -75,6 +75,42 @@ Repeat `--root` and `--project` as needed; they can be mixed:
 }
 ```
 
+### Central store
+
+`--store <dir>` re-roots every knowledge store under one central directory,
+keeping repos clean of `.agents/`:
+
+```jsonc
+// opencode.jsonc
+{
+  "mcp": {
+    "knowledge-mcp": {
+      "command": ["knowledge-mcp", "--root", "/path/to/org", "--store", "/path/to/knowledge"],
+      "type": "local"
+    }
+  }
+}
+```
+
+Layout:
+
+```
+<store>/
+  .index/                          # bleve index (default; --index wins)
+  <project>/.agents/               # per-project store (qualified names nest:
+                                   #   <root>/<project> -> <store>/<root>/<project>/.agents)
+  <org>/.agents/knowledge/         # org-level markdown
+```
+
+- In-tree `.agents/` dirs are ignored (startup warnings list them). Migrate
+  by moving them: `mkdir -p <store>/<address> && mv <project>/.agents <store>/<address>/.agents`.
+- Only `--global` stays where it is; it merges into listings as usual.
+- `init_knowledge` initializes the central store for resolvable paths and
+  errors for others (add them via `--project`/`--root` first).
+- The store directory itself must exist and is never created for you.
+- The store is single-writer: its search index and files do not support
+  concurrent access, so point only one server at a store.
+
 ### Shared global store
 
 `--global <path>` adds one knowledge store shared across every project. Querying or listing any project automatically merges the global store's entries alongside the project's own.
@@ -102,14 +138,14 @@ General notes:
 - Each `--root` discovers its immediate children as projects (one level deep — pass deeper directories as additional flags).
 - Duplicate project basenames across roots are addressed as `<root>/<project>` (e.g. `work/api`); `list_projects` shows which names need qualification.
 - `query_knowledge` accepts org root names to search that root's `.agents/knowledge/` files. Org-level documents are indexed **per `##` section**, so a query returns the matching section(s), not the entire file.
-- Multi-entry configurations store the search index under `$XDG_STATE_HOME/knowledge-mcp/` (default `~/.local/state/knowledge-mcp/`). Single-flag configurations keep the index inside their own `.agents/`.
+- Multi-entry configurations store the search index under `$XDG_STATE_HOME/knowledge-mcp/` (default `~/.local/state/knowledge-mcp/`). Single-flag configurations keep the index inside their own `.agents/` — unless `--store` is set, in which case the index lives at `<store>/.index`.
 - `--index <path>` overrides the index location in all modes.
 
 ## MCP Tools
 
 | Tool | Description |
 |------|-------------|
-| `init_knowledge` | Create `.agents/` directory structure for a project |
+| `init_knowledge` | Create a project's knowledge directory structure (central store under `--store`) |
 | `write_knowledge` | Add a new knowledge entry |
 | `query_knowledge` | Full-text search with category filters |
 | `list_knowledge` | List all entries; entries with rules shown first as constraints |

@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -37,7 +36,7 @@ func ListHandler(res *projects.Resolver, idx *search.Index) func(context.Context
 		// the project's own.
 		if ref.Address != projects.GlobalAddress {
 			if globalRef, ok := res.GlobalRef(); ok {
-				output += listProjectEntries(globalRef.Path, projects.GlobalAddress, filterCategory, " (global)")
+				output += listProjectEntries(res.AgentsDir(globalRef), projects.GlobalAddress, filterCategory, " (global)")
 			}
 		}
 
@@ -49,8 +48,7 @@ func ListHandler(res *projects.Resolver, idx *search.Index) func(context.Context
 			return mcp.NewToolResultText(output), nil
 		}
 
-		projectPath := ref.Path
-		local := listProjectEntries(projectPath, project, filterCategory, "")
+		local := listProjectEntries(res.AgentsDir(ref), project, filterCategory, "")
 
 		if local == "" {
 			if strings.TrimSpace(output) == "" {
@@ -108,8 +106,7 @@ func listOrgEntries(idx *search.Index, orgAddress, filterCategory string) string
 	return output
 }
 
-func listProjectEntries(projectPath, projectName, filterCategory, headerSuffix string) string {
-	agentsDir := filepath.Join(projectPath, ".agents")
+func listProjectEntries(agentsDir, projectName, filterCategory, headerSuffix string) string {
 
 	var constraints []knowledge.Entry
 	type catEntries struct {
