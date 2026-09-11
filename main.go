@@ -155,7 +155,7 @@ func indexOrgKnowledge(knowledgeDir, orgName string, idx *search.Index) {
 		if err != nil {
 			continue
 		}
-		for _, sec := range splitSections(string(data)) {
+		for _, sec := range knowledge.SplitSections(string(data)) {
 			heading, body := sec[0], sec[1]
 			doc := search.SearchDocument{
 				Summary:  fmt.Sprintf("%s: %s", catFile, heading),
@@ -169,44 +169,6 @@ func indexOrgKnowledge(knowledgeDir, orgName string, idx *search.Index) {
 			}
 		}
 	}
-}
-
-// splitSections splits a knowledge markdown document on lines starting
-// with "## ". Content before the first section heading is kept under
-// "Overview". Subsection headings (### ...) stay part of their parent
-// section body.
-func splitSections(data string) [][2]string {
-	var sections [][2]string
-	var currentTitle string
-	var current strings.Builder
-
-	flush := func() {
-		title := currentTitle
-		if title == "" {
-			title = "Overview"
-		}
-		body := strings.TrimSpace(current.String())
-		if title == "Overview" && body == "" {
-			current.Reset()
-			return
-		}
-		sections = append(sections, [2]string{title, body})
-		current.Reset()
-	}
-
-	for _, line := range strings.Split(data, "\n") {
-		if rest, ok := strings.CutPrefix(line, "## "); ok {
-			flush()
-			currentTitle = strings.TrimSpace(rest)
-			current.WriteString(line)
-			current.WriteString("\n")
-			continue
-		}
-		current.WriteString(line)
-		current.WriteString("\n")
-	}
-	flush()
-	return sections
 }
 
 // registerTools adds every registry tool with an available handler.

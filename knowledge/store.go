@@ -117,3 +117,41 @@ func LoadOrCreate(filePath, project string) (*KnowledgeFile, error) {
 	}
 	return kf, nil
 }
+
+// SplitSections splits a knowledge markdown document on lines starting
+// with "## ". Content before the first section heading is kept under
+// "Overview". Subsection headings (### ...) stay part of their parent
+// section body.
+func SplitSections(data string) [][2]string {
+	var sections [][2]string
+	var currentTitle string
+	var current strings.Builder
+
+	flush := func() {
+		title := currentTitle
+		if title == "" {
+			title = "Overview"
+		}
+		body := strings.TrimSpace(current.String())
+		if title == "Overview" && body == "" {
+			current.Reset()
+			return
+		}
+		sections = append(sections, [2]string{title, body})
+		current.Reset()
+	}
+
+	for _, line := range strings.Split(data, "\n") {
+		if rest, ok := strings.CutPrefix(line, "## "); ok {
+			flush()
+			currentTitle = strings.TrimSpace(rest)
+			current.WriteString(line)
+			current.WriteString("\n")
+			continue
+		}
+		current.WriteString(line)
+		current.WriteString("\n")
+	}
+	flush()
+	return sections
+}
