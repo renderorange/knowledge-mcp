@@ -13,7 +13,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/renderorange/knowledge-mcp/knowledge"
@@ -89,121 +88,7 @@ func main() {
 	)
 
 	// Register tools
-	s.AddTool(
-		mcp.NewTool("init_knowledge",
-			mcp.WithDescription("Create .agents/ knowledge directory structure for a project"),
-			mcp.WithString("project_path",
-				mcp.Required(),
-				mcp.Description("Absolute path to the project root"),
-			),
-		),
-		tools.InitHandler(resolver),
-	)
-
-	s.AddTool(
-		mcp.NewTool("write_knowledge",
-			mcp.WithDescription("Add a new knowledge entry to a project's .agents/ store"),
-			mcp.WithString("project",
-				mcp.Required(),
-				mcp.Description("Project name (bare if unique, else root/project)"),
-			),
-			mcp.WithString("category",
-				mcp.Required(),
-				mcp.Description("Category: conventions, subsystems, or decisions"),
-			),
-			mcp.WithString("summary",
-				mcp.Required(),
-				mcp.Description("One-line description (max 100 chars)"),
-			),
-			mcp.WithString("detail",
-				mcp.Required(),
-				mcp.Description("Concise knowledge (10-20 lines). Summarize key facts, don't copy source files. Include only query-able information."),
-			),
-			mcp.WithString("source",
-				mcp.Required(),
-				mcp.Description("How this was learned (provenance)"),
-			),
-			mcp.WithString("rule",
-				mcp.Description("Imperative constraint this entry enforces (e.g. \"Never create files outside ./tmp\"). Shown prominently in list output. Max 200 chars."),
-			),
-		),
-		tools.WriteHandler(resolver, idx),
-	)
-
-	s.AddTool(
-		mcp.NewTool("query_knowledge",
-			mcp.WithDescription("Search knowledge entries by text and category"),
-			mcp.WithString("project",
-				mcp.Required(),
-				mcp.Description("Project name (bare if unique, else root/project)"),
-			),
-			mcp.WithString("query",
-				mcp.Description("Full-text search query"),
-			),
-			mcp.WithString("category",
-				mcp.Description("Filter by category: conventions, subsystems, or decisions"),
-			),
-			mcp.WithNumber("limit",
-				mcp.Description("Max results (default 10)"),
-			),
-		),
-		tools.QueryHandler(resolver, idx),
-	)
-
-	s.AddTool(
-		mcp.NewTool("list_knowledge",
-			mcp.WithDescription("List all knowledge entries for a project. Entries with a rule are shown first under constraints."),
-			mcp.WithString("project",
-				mcp.Required(),
-				mcp.Description("Project name (bare if unique, else root/project)"),
-			),
-			mcp.WithString("category",
-				mcp.Description("Filter by category: conventions, subsystems, or decisions"),
-			),
-		),
-		tools.ListHandler(resolver, idx),
-	)
-
-	s.AddTool(
-		mcp.NewTool("update_knowledge",
-			mcp.WithDescription("Update an existing knowledge entry by ID"),
-			mcp.WithString("project",
-				mcp.Required(),
-				mcp.Description("Project name (bare if unique, else root/project)"),
-			),
-			mcp.WithString("category",
-				mcp.Required(),
-				mcp.Description("Category: conventions, subsystems, or decisions"),
-			),
-			mcp.WithString("id",
-				mcp.Required(),
-				mcp.Description("Entry ID to update (e.g., conv-001)"),
-			),
-			mcp.WithString("summary",
-				mcp.Description("New summary (optional)"),
-			),
-			mcp.WithString("detail",
-				mcp.Description("New detail (optional)"),
-			),
-			mcp.WithString("rule",
-				mcp.Description("New imperative rule (optional, max 200 chars)"),
-			),
-			mcp.WithString("supersedes",
-				mcp.Description("ID of entry this supersedes (optional)"),
-			),
-		),
-		tools.UpdateHandler(resolver, idx),
-	)
-
-	// Register list_projects tool (org-wide mode only)
-	if len(roots) > 0 {
-		s.AddTool(
-			mcp.NewTool("list_projects",
-				mcp.WithDescription("List all discovered projects across configured roots"),
-			),
-			tools.ListProjectsHandler(resolver),
-		)
-	}
+	registerTools(s, buildHandlers(resolver, idx, len(roots) > 0))
 
 	// Graceful shutdown on SIGTERM/SIGINT
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -322,6 +207,34 @@ func splitSections(data string) [][2]string {
 	}
 	flush()
 	return sections
+}
+
+// registerTools adds every registry tool with an available handler.
+// list_projects is only served in org-wide mode (its handler is absent
+// otherwise) — the loop does the gating by design.
+func registerTools(s *server.MCPServer, handlerMap map[string]server.ToolHandlerFunc) {
+	for _, spec := range tools.Registry {
+		handler, ok := handlerMap[spec.Name]
+		if !ok {
+			continue // not served in this mode
+		}
+		s.AddTool(spec.MCPTool(), handler)
+	}
+}
+
+// buildHandlers wires the tools package handlers to the resolver/index.
+func buildHandlers(res *projects.Resolver, idx *search.Index, orgMode bool) map[string]server.ToolHandlerFunc {
+	h := map[string]server.ToolHandlerFunc{
+		tools.ToolInitKnowledge:   tools.InitHandler(res),
+		tools.ToolWriteKnowledge:  tools.WriteHandler(res, idx),
+		tools.ToolQueryKnowledge:  tools.QueryHandler(res, idx),
+		tools.ToolListKnowledge:   tools.ListHandler(res, idx),
+		tools.ToolUpdateKnowledge: tools.UpdateHandler(res, idx),
+	}
+	if orgMode {
+		h[tools.ToolListProjects] = tools.ListProjectsHandler(res)
+	}
+	return h
 }
 
 // indexLocation picks the bleve index path: explicit override, a --store

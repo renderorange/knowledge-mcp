@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/renderorange/knowledge-mcp/projects"
+	"github.com/renderorange/knowledge-mcp/tools"
 )
 
 func TestSplitSections(t *testing.T) {
@@ -160,5 +163,27 @@ func TestIndexLocationOverrideBeatsStore(t *testing.T) {
 	}
 	if p != "/custom/index" {
 		t.Errorf("location = %q, want %q", p, "/custom/index")
+	}
+}
+
+func TestBuildHandlersMatchesRegistry(t *testing.T) {
+	resolver, _, err := projects.Build(nil, []string{t.TempDir()}, "")
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
+	for _, orgMode := range []bool{false, true} {
+		h := buildHandlers(resolver, nil, orgMode)
+		for _, spec := range tools.Registry {
+			_, ok := h[spec.Name]
+			if spec.Name == tools.ToolListProjects && !orgMode {
+				if ok {
+					t.Errorf("orgMode=false: list_projects must not be registered")
+				}
+				continue
+			}
+			if !ok {
+				t.Errorf("orgMode=%v: missing handler for %q", orgMode, spec.Name)
+			}
+		}
 	}
 }
