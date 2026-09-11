@@ -4,6 +4,41 @@ An MCP server for persistent agent knowledge. Agents query and write structured 
 
 ## Quick Start
 
+One command downloads the binary for your platform and wires everything up
+(OpenCode MCP entry, agent instructions block, skill, and the Grep/Glob
+augment hook):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/renderorange/knowledge-mcp/main/install.sh -o install.sh
+chmod +x install.sh
+./install.sh --root /path/to/org --global /path/to/global-store
+```
+
+Flags passed to `install.sh` become the server's flags (`--root`,
+`--project`, `--global`, `--store`, `--index`). `--version <tag>` pins a
+specific release; `--dry-run` previews what would happen.
+
+What install writes:
+
+- the MCP server entry in `~/.config/opencode/opencode.jsonc` (marker-delimited)
+- an instruction block in `~/.config/opencode/AGENTS.md`
+- the `knowledge-mcp` skill at `~/.config/opencode/skills/knowledge-mcp/SKILL.md`
+- the augment plugin at `~/.config/opencode/plugins/knowledge-mcp.ts`
+- an install record at `~/.config/knowledge-mcp/install.json`
+
+The plugin intercepts Grep/Glob and appends matching knowledge-store entries
+to the results, so agent searches surface stored conventions automatically.
+
+Remove the integration (data-safe — store files are never touched):
+
+```bash
+knowledge-mcp uninstall [--remove-binary]
+```
+
+The client manages the server process — you don't need to run it manually.
+
+### Build From Source
+
 ```bash
 make build
 ```
@@ -13,8 +48,6 @@ Or with a specific version:
 ```bash
 make build/1.2.3
 ```
-
-Then configure your MCP client (see [Agent Configuration](#agent-configuration) below). The client manages the server process — you don't need to run it manually.
 
 Check the version:
 
