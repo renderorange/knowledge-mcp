@@ -19,11 +19,12 @@ func UpsertBlock(existing, block []byte, startMark, endMark string) []byte {
 	end := strings.Index(content, endMark)
 	if start >= 0 && end > start {
 		endLine := strings.Index(content[end:], "\n")
-		if endLine < 0 {
-			endLine = len(content) - end
+		endCut := len(content)
+		if endLine >= 0 {
+			endCut = end + endLine + 1
 		}
 		head := content[:start]
-		tail := content[end+endLine:]
+		tail := content[endCut:]
 		if strings.HasSuffix(head, "\n\n") {
 			head = strings.TrimRight(head, "\n") + "\n\n"
 		}
@@ -34,7 +35,11 @@ func UpsertBlock(existing, block []byte, startMark, endMark string) []byte {
 	if trimmed != "" && !strings.HasSuffix(trimmed, "\n\n") {
 		sep = "\n\n"
 	}
-	return []byte(trimmed + sep + string(block) + "\n")
+	out := trimmed + sep + string(block)
+	if !strings.HasSuffix(out, "\n") {
+		out += "\n"
+	}
+	return []byte(out)
 }
 
 // RenderAgentsBlock renders the minimal always-loaded instruction block.

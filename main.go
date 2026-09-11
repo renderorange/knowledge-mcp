@@ -15,6 +15,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/renderorange/knowledge-mcp/install"
 	"github.com/renderorange/knowledge-mcp/knowledge"
 	"github.com/renderorange/knowledge-mcp/projects"
 	"github.com/renderorange/knowledge-mcp/search"
@@ -38,6 +39,26 @@ func (p *pathList) Set(v string) error {
 }
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "install":
+			if err := install.Run(os.Args[2:], version); err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
+			return
+		case "uninstall":
+			if err := install.RunUninstall(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
+			return
+		case "hook-augment":
+			runHook()
+			return
+		}
+	}
+
 	var roots pathList
 	var projs pathList
 	showVersion := flag.Bool("version", false, "Print version and exit")
@@ -169,6 +190,12 @@ func indexOrgKnowledge(knowledgeDir, orgName string, idx *search.Index) {
 			}
 		}
 	}
+}
+
+// runHook is implemented with the hook package in Task 8.
+func runHook() {
+	fmt.Fprintln(os.Stderr, "hook-augment not implemented yet")
+	os.Exit(0)
 }
 
 // registerTools adds every registry tool with an available handler.

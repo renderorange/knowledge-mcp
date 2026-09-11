@@ -73,10 +73,10 @@ func replaceMarkedRegion(content, binPath string, flags []string) ([]byte, bool,
 	endIdx := strings.Index(content, mcpMarkerEnd)
 	after := content[endIdx:]
 	newline := strings.Index(after, "\n")
-	if newline < 0 {
-		newline = len(after)
+	replaceEnd := len(content)
+	if newline >= 0 {
+		replaceEnd = endIdx + newline + 1
 	}
-	replaceEnd := endIdx + newline
 
 	lineStart := strings.LastIndex(content[:startIdx], "\n") + 1
 	indent := content[lineStart:startIdx]
