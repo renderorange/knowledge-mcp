@@ -15,6 +15,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/renderorange/knowledge-mcp/hook"
 	"github.com/renderorange/knowledge-mcp/install"
 	"github.com/renderorange/knowledge-mcp/knowledge"
 	"github.com/renderorange/knowledge-mcp/projects"
@@ -192,9 +193,13 @@ func indexOrgKnowledge(knowledgeDir, orgName string, idx *search.Index) {
 	}
 }
 
-// runHook is implemented with the hook package in Task 8.
+// runHook executes hook-augment against the recorded install config.
 func runHook() {
-	fmt.Fprintln(os.Stderr, "hook-augment not implemented yet")
+	if err := hook.Run(os.Stdin, os.Stdout); err != nil {
+		if os.Getenv("KNM_LOG_LEVEL") != "" {
+			fmt.Fprintf(os.Stderr, "hook-augment: %v\n", err)
+		}
+	}
 	os.Exit(0)
 }
 
