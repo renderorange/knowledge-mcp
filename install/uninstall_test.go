@@ -93,6 +93,37 @@ func TestRunUninstallSkipsMissingMarkers(t *testing.T) {
 	}
 }
 
+func TestRunUninstallStripsPermissionRule(t *testing.T) {
+	_, opencodeDir := setupConfig(t)
+	writeAgents(t, opencodeDir, "# Existing\n")
+	root := t.TempDir()
+	binPath := filepath.Join(t.TempDir(), "knowledge-mcp")
+
+	if _, err := runInstall(installConfig{
+		Roots: []string{root}, Version: "v1", BinPath: binPath,
+	}); err != nil {
+		t.Fatalf("setup install error: %v", err)
+	}
+
+	cfgPath, _ := OpencodeConfigPath()
+	before, _ := os.ReadFile(cfgPath)
+	if !strings.Contains(string(before), permMarkerStart) {
+		t.Fatal("setup: permission rule not present after install")
+	}
+
+	if _, err := runUninstall(false); err != nil {
+		t.Fatalf("runUninstall() error: %v", err)
+	}
+
+	after, _ := os.ReadFile(cfgPath)
+	if strings.Contains(string(after), permMarkerStart) {
+		t.Error("permission rule markers not stripped")
+	}
+	if strings.Contains(string(after), "external_directory") {
+		t.Error("external_directory rule not stripped")
+	}
+}
+
 func TestRunUninstallNoRecord(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("KNM_CONFIG_DIR", filepath.Join(cfg, "knowledge-mcp"))

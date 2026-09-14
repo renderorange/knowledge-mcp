@@ -44,6 +44,13 @@ func runUninstall(removeBinary bool) ([]string, error) {
 		}
 	}
 
+	// Strip the permission rule marker block.
+	if cfgPath, err := OpencodeConfigPath(); err == nil {
+		if serr := stripFileBlock(cfgPath, permMarkerStart, permMarkerEnd, &reports); serr != nil {
+			return reports, serr
+		}
+	}
+
 	// Delete generated full-file artifacts.
 	for _, art := range rec.Artifacts {
 		switch art.Kind {
