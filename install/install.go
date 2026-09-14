@@ -96,6 +96,22 @@ func runInstall(cfg installConfig) ([]string, error) {
 		}
 	}
 
+	// Merge the external_directory permission rule so the MCP server can
+	// access its XDG state dir without prompting.
+	stateDir := filepath.Join(mustHome(), ".local", "state", "knowledge-mcp")
+	if d := os.Getenv("XDG_STATE_HOME"); d != "" {
+		stateDir = filepath.Join(d, "knowledge-mcp")
+	}
+	permData, _ := os.ReadFile(configPath)
+	permMerged, permChanged, permErr := MergePermissionRule(permData, stateDir)
+	if permErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not merge permission rule: %v\n", permErr)
+	} else if permChanged {
+		if err := os.WriteFile(configPath, permMerged, 0644); err != nil {
+			return nil, fmt.Errorf("write permission rule: %w", err)
+		}
+	}
+
 	artifacts := []Artifact{{Path: configPath, Kind: "mcp_entry_block"}}
 	var reports []string
 

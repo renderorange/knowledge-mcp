@@ -126,6 +126,32 @@ func TestRunInstallRejectsMissingRoot(t *testing.T) {
 	}
 }
 
+func TestRunInstallWritesPermissionRule(t *testing.T) {
+	_, opencodeDir := setupConfig(t)
+	writeAgents(t, opencodeDir, "# Existing\n")
+	root := t.TempDir()
+
+	if _, err := runInstall(installConfig{
+		Roots: []string{root}, Version: "v1", BinPath: "/bin/k",
+	}); err != nil {
+		t.Fatalf("runInstall() error: %v", err)
+	}
+
+	cfgPath, _ := OpencodeConfigPath()
+	cfgData, _ := os.ReadFile(cfgPath)
+	s := string(cfgData)
+	for _, want := range []string{
+		"// knowledge-mcp:permission:start",
+		"\"external_directory\"",
+		"\"~/.local/state/knowledge-mcp/**\": \"allow\"",
+		"// knowledge-mcp:permission:end",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("opencode config missing %q:\n%s", want, s)
+		}
+	}
+}
+
 func TestRunInstallRequiresFlags(t *testing.T) {
 	setupConfig(t)
 	if _, err := runInstall(installConfig{Version: "v", BinPath: "/bin/k"}); err == nil {
