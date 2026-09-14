@@ -17,3 +17,16 @@ func TestRenderPluginContent(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderPluginIncludesSessionHook(t *testing.T) {
+	src := string(RenderPlugin("/bin/k"))
+	for _, want := range []string{
+		"session.created",
+		"showToast",
+		"knowledge-mcp",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("plugin missing %q", want)
+		}
+	}
+}

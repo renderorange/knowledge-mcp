@@ -37,7 +37,10 @@ func RenderPlugin(binPath string) []byte {
 		"  });\n" +
 		"}\n" +
 		"\n" +
-		"export const KnowledgeMcp = async () => ({\n" +
+		"export const KnowledgeMcp = async ({ client }) => ({\n" +
+		"  'session.created': async () => {\n" +
+		"    client.tui.showToast({ body: { message: 'knowledge-mcp: if tools are missing, check external_directory permission in opencode config', variant: 'info' } });\n" +
+		"  },\n" +
 		"  'tool.execute.after': async (input, output) => {\n" +
 		"    const tool = input?.tool === 'grep' ? 'Grep' : input?.tool === 'glob' ? 'Glob' : null;\n" +
 		"    if (!tool) return;\n" +
