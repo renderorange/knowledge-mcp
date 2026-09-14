@@ -73,10 +73,9 @@ func MergeMCPEntry(existing []byte, binPath string, flags []string) ([]byte, boo
 
 // MergePermissionRule adds (or refreshes) the external_directory permission
 // rule for the knowledge-mcp state directory.
-func MergePermissionRule(existing []byte, stateDir string) ([]byte, bool, error) {
+func MergePermissionRule(existing []byte, stateDir, homeDir string) ([]byte, bool, error) {
 	content := string(existing)
-	home := mustHome()
-	rel := strings.TrimPrefix(stateDir, home)
+	rel := strings.TrimPrefix(stateDir, homeDir)
 	rel = strings.TrimPrefix(rel, "/")
 	tildePath := "~/" + rel + "/**"
 

@@ -105,7 +105,7 @@ func TestMergePermissionRuleIntoExistingConfig(t *testing.T) {
 	home := os.Getenv("HOME")
 	stateDir := home + "/.local/state/knowledge-mcp"
 	existing := []byte("{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"mcp\": {}\n}\n")
-	out, changed, err := MergePermissionRule(existing, stateDir)
+	out, changed, err := MergePermissionRule(existing, stateDir, home)
 	if err != nil {
 		t.Fatalf("MergePermissionRule() error: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestMergePermissionRuleAlreadyPresent(t *testing.T) {
 	home := os.Getenv("HOME")
 	stateDir := home + "/.local/state/knowledge-mcp"
 	existing := []byte("{\n  \"permission\": {\n    // knowledge-mcp:permission:start\n    \"external_directory\": { \"~/.local/state/knowledge-mcp/**\": \"allow\" },\n    // knowledge-mcp:permission:end\n  }\n}\n")
-	out, changed, err := MergePermissionRule(existing, stateDir)
+	out, changed, err := MergePermissionRule(existing, stateDir, home)
 	if err != nil {
 		t.Fatalf("MergePermissionRule() error: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestMergePermissionRuleReplacesMarkedRegion(t *testing.T) {
 	newStateDir := home + "/different/state/knowledge-mcp"
 	// Seed with the old state dir's rule in the marked region.
 	existing := []byte("{\n  \"permission\": {\n    // knowledge-mcp:permission:start\n    \"external_directory\": { \"~/.local/state/knowledge-mcp/**\": \"allow\" },\n    // knowledge-mcp:permission:end\n  }\n}\n")
-	out, changed, err := MergePermissionRule(existing, newStateDir)
+	out, changed, err := MergePermissionRule(existing, newStateDir, home)
 	if err != nil {
 		t.Fatalf("MergePermissionRule() error: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestMergePermissionRuleNoPermissionKey(t *testing.T) {
 	home := os.Getenv("HOME")
 	stateDir := home + "/state/km"
 	existing := []byte("{\n  \"mcp\": {}\n}\n")
-	out, _, err := MergePermissionRule(existing, stateDir)
+	out, _, err := MergePermissionRule(existing, stateDir, home)
 	if err != nil {
 		t.Fatalf("MergePermissionRule() error: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestMergePermissionRuleNoPermissionKey(t *testing.T) {
 func TestMergePermissionRuleEmptyFile(t *testing.T) {
 	home := os.Getenv("HOME")
 	stateDir := home + "/state/km"
-	out, _, err := MergePermissionRule(nil, stateDir)
+	out, _, err := MergePermissionRule(nil, stateDir, home)
 	if err != nil {
 		t.Fatalf("MergePermissionRule() error: %v", err)
 	}

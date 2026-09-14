@@ -24,6 +24,10 @@ func TestRenderPluginIncludesSessionHook(t *testing.T) {
 		"session.created",
 		"showToast",
 		"knowledge-mcp",
+		"client.app.agents()",
+		"hasKnm",
+		"!hasKnm",
+		"variant: 'warning'",
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("plugin missing %q", want)
