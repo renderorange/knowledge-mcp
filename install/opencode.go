@@ -4,13 +4,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 )
 
 const (
-	mcpMarkerStart = "// knowledge-mcp:start"
-	mcpMarkerEnd   = "// knowledge-mcp:end"
+	mcpMarkerStart  = "// knowledge-mcp:start"
+	mcpMarkerEnd    = "// knowledge-mcp:end"
+	permMarkerStart = "// knowledge-mcp:permission:start"
+	permMarkerEnd   = "// knowledge-mcp:permission:end"
 )
 
 var errHandWrittenEntry = errors.New("hand-written knowledge-mcp entry without knowledge-mcp markers")
@@ -66,6 +69,101 @@ func MergeMCPEntry(existing []byte, binPath string, flags []string) ([]byte, boo
 		return nil, false, err
 	}
 	return []byte(out), true, nil
+}
+
+// MergePermissionRule adds (or refreshes) the external_directory permission
+// rule for the knowledge-mcp state directory.
+func MergePermissionRule(existing []byte, stateDir string) ([]byte, bool, error) {
+	content := string(existing)
+	home := mustHome()
+	rel := strings.TrimPrefix(stateDir, home)
+	rel = strings.TrimPrefix(rel, "/")
+	tildePath := "~/" + rel + "/**"
+
+	if strings.Contains(content, permMarkerStart) && strings.Contains(content, permMarkerEnd) {
+		return replacePermMarkedRegion(content, tildePath)
+	}
+
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		entry := renderPermEntry(tildePath, "  ")
+		out := "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"permission\": {\n" + entry + "  },\n}\n"
+		return []byte(out), true, nil
+	}
+
+	indent := detectIndent(content)
+	entry := renderPermEntry(tildePath, indent)
+
+	permRE := regexp.MustCompile(`(^|\n)([ \t]*)"permission"[ \t]*:[ \t]*\{`)
+	if loc := permRE.FindStringSubmatchIndex(content); loc != nil {
+		insertAt := loc[1]
+		out := content[:insertAt] + "\n" + entry + content[insertAt:]
+		if err := sanityCheck(out); err != nil {
+			return nil, false, err
+		}
+		return []byte(out), true, nil
+	}
+
+	idx := strings.LastIndex(content, "}")
+	if idx < 0 {
+		return nil, false, errors.New("no closing brace found and no permission key; cannot merge")
+	}
+	before := strings.TrimSpace(content[:idx])
+	pfx := ""
+	if !strings.HasSuffix(before, ",") && !strings.HasSuffix(before, "{") {
+		pfx = ","
+	}
+	out := strings.TrimRight(content[:idx], " \t\n") + pfx + "\n" + indent + "\"permission\": {\n" + entry + indent + "},\n" + content[idx:]
+	if err := sanityCheck(out); err != nil {
+		return nil, false, err
+	}
+	return []byte(out), true, nil
+}
+
+func replacePermMarkedRegion(content, tildePath string) ([]byte, bool, error) {
+	startIdx := strings.Index(content, permMarkerStart)
+	endIdx := strings.Index(content, permMarkerEnd)
+
+	markedRegion := content[startIdx : endIdx+len(permMarkerEnd)]
+	if strings.Contains(markedRegion, tildePath) {
+		return []byte(content), false, nil
+	}
+
+	after := content[endIdx:]
+	newline := strings.Index(after, "\n")
+	replaceEnd := len(content)
+	if newline >= 0 {
+		replaceEnd = endIdx + newline + 1
+	}
+
+	lineStart := strings.LastIndex(content[:startIdx], "\n") + 1
+	indent := content[lineStart:startIdx]
+
+	entry := renderPermEntry(tildePath, indent)
+	out := content[:lineStart] + entry + content[replaceEnd:]
+	if err := sanityCheck(out); err != nil {
+		return nil, false, err
+	}
+	return []byte(out), true, nil
+}
+
+func renderPermEntry(tildePath, space string) string {
+	inner := space + "  "
+	return strings.Join([]string{
+		space + permMarkerStart,
+		space + "\"external_directory\": {",
+		inner + "\"" + tildePath + "\": \"allow\"",
+		space + "},",
+		space + permMarkerEnd + "\n",
+	}, "\n")
+}
+
+func mustHome() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		panic("resolve home: " + err.Error())
+	}
+	return home
 }
 
 func replaceMarkedRegion(content, binPath string, flags []string) ([]byte, bool, error) {
