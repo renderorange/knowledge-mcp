@@ -33,3 +33,13 @@ entries:
         Rules surface as a constraints section in list_knowledge output, above regular entries.
       source: code review, 2026-09-08
       date: "2026-09-08"
+    - id: sub-004
+      summary: Background indexing with --no-index-on-startup flag
+      detail: |-
+        IndexAll runs as a goroutine (go idx.IndexAll(resolver)) when --no-index-on-startup is false (default).
+        When --no-index-on-startup is true, indexing is skipped entirely; server starts with stale or empty index.
+        Queries block on ready channel until indexing completes; ready channel closes when IndexAll finishes or if index has stale data.
+        readyOnce (sync.Once) prevents double-close panic if NewIndex already closed ready channel.
+        Useful for large knowledge stores where startup indexing would delay server readiness.
+      source: GH-25 background indexing, 2026-09-20
+      date: "2026-09-20"

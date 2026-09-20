@@ -26,3 +26,13 @@ entries:
         Decision documented so future search work does not re-introduce raw QueryStringQuery usage.
       source: user-requested robustness fix, 2026-09-08
       date: "2026-09-08"
+    - id: dec-004
+      summary: Background indexing with --no-index-on-startup for large stores
+      detail: |-
+        Synchronous indexing on startup blocked server readiness for large knowledge stores.
+        Changed to background goroutine (go idx.IndexAll(resolver)) with ready channel for query synchronization.
+        Added --no-index-on-startup flag to skip indexing entirely; useful when startup delay is unacceptable.
+        Queries block on ready channel until indexing completes; stale data remains available if index has data.
+        readyOnce (sync.Once) prevents double-close panic when NewIndex already closed ready channel.
+      source: GH-25 background indexing, 2026-09-20
+      date: "2026-09-20"
