@@ -81,17 +81,9 @@ func NewIndex(indexPath string, indexNames []string) (*Index, error) {
 			return nil, fmt.Errorf("create index: %w", err)
 		}
 	} else {
-		idx, err = bleve.Open(indexPath)
+		idx, err = openOrRecover(indexPath, mapping)
 		if err != nil {
-			// Index corrupted — rebuild from scratch
-			log.Printf("warning: index corrupted (%v), rebuilding", err)
-			if rmErr := DeleteIndex(indexPath); rmErr != nil {
-				return nil, fmt.Errorf("remove corrupted index: %w", rmErr)
-			}
-			idx, err = bleve.New(indexPath, mapping)
-			if err != nil {
-				return nil, fmt.Errorf("create index after corruption: %w", err)
-			}
+			return nil, err
 		}
 	}
 
@@ -125,6 +117,57 @@ func metaStale(indexPath string, indexNames []string) bool {
 	want := slices.Clone(indexNames)
 	sort.Strings(want)
 	return meta.Version != metaFileVersion || !slices.Equal(meta.Names, want)
+}
+
+// openOrRecover opens an existing bleve index, recovering from corruption
+// (including panics from bbolt on truncated or damaged files) and verifying
+// the index is actually usable with a test query.
+func openOrRecover(indexPath string, mapping mapping.IndexMapping) (bleve.Index, error) {
+	var idx bleve.Index
+	var openErr error
+
+	// bbolt can panic on corrupted files (e.g. truncated root.bolt).
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				openErr = fmt.Errorf("panic opening index: %v", r)
+			}
+		}()
+		idx, openErr = bleve.Open(indexPath)
+	}()
+
+	if openErr != nil {
+		log.Printf("warning: index corrupted (%v), rebuilding", openErr)
+		if rmErr := DeleteIndex(indexPath); rmErr != nil {
+			return nil, fmt.Errorf("remove corrupted index: %w", rmErr)
+		}
+		idx, err := bleve.New(indexPath, mapping)
+		if err != nil {
+			return nil, fmt.Errorf("create index after corruption: %w", err)
+		}
+		return idx, nil
+	}
+
+	// Verify the index is actually usable — bolt pages can be
+	// corrupted in ways that don't surface on Open but hang on use.
+	testReq := bleve.NewSearchRequest(bleve.NewMatchAllQuery())
+	testReq.Size = 1
+	if _, searchErr := idx.Search(testReq); searchErr != nil {
+		log.Printf("warning: index unhealthy (%v), rebuilding", searchErr)
+		if rmErr := idx.Close(); rmErr != nil {
+			return nil, fmt.Errorf("close unhealthy index: %w", rmErr)
+		}
+		if rmErr := DeleteIndex(indexPath); rmErr != nil {
+			return nil, fmt.Errorf("remove unhealthy index: %w", rmErr)
+		}
+		idx, err := bleve.New(indexPath, mapping)
+		if err != nil {
+			return nil, fmt.Errorf("create index after unhealthy: %w", err)
+		}
+		return idx, nil
+	}
+
+	return idx, nil
 }
 
 // indexMapping builds an explicit mapping: text analysis for content fields,
