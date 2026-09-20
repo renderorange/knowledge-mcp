@@ -92,6 +92,24 @@ func NewIndex(indexPath string, indexNames []string) (*Index, error) {
 			if err != nil {
 				return nil, fmt.Errorf("create index after corruption: %w", err)
 			}
+		} else {
+			// Verify the index is actually usable (bolt pages can
+			// be corrupted in ways that don't surface on Open).
+			testReq := bleve.NewSearchRequest(bleve.NewMatchAllQuery())
+			testReq.Size = 1
+			if _, searchErr := idx.Search(testReq); searchErr != nil {
+				log.Printf("warning: index unhealthy (%v), rebuilding", searchErr)
+				if rmErr := idx.Close(); rmErr != nil {
+					return nil, fmt.Errorf("close unhealthy index: %w", rmErr)
+				}
+				if rmErr := DeleteIndex(indexPath); rmErr != nil {
+					return nil, fmt.Errorf("remove unhealthy index: %w", rmErr)
+				}
+				idx, err = bleve.New(indexPath, mapping)
+				if err != nil {
+					return nil, fmt.Errorf("create index after unhealthy: %w", err)
+				}
+			}
 		}
 	}
 
