@@ -25,10 +25,7 @@ func TestEndToEnd(t *testing.T) {
 	}
 
 	indexPath := filepath.Join(dir, ".index")
-	idx, err := search.NewIndex(indexPath, []string{projectName})
-	if err != nil {
-		t.Fatalf("NewIndex() error: %v", err)
-	}
+	idx := newIndexReady(t, indexPath, []string{projectName})
 	defer idx.Close()
 
 	// Step 1: Init
@@ -301,10 +298,7 @@ func TestFullWorkflow(t *testing.T) {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
 
-	idx, err := search.NewIndex(filepath.Join(orgRoot, ".agents", ".index"), []string{"app", "lib"})
-	if err != nil {
-		t.Fatalf("NewIndex() error: %v", err)
-	}
+	idx := newIndexReady(t, filepath.Join(orgRoot, ".agents", ".index"), []string{"app", "lib"})
 	defer idx.Close()
 
 	// 1. List projects
@@ -388,10 +382,7 @@ func TestStoreModeEndToEnd(t *testing.T) {
 		t.Errorf("expected in-tree ignore warning, got %v", warnings)
 	}
 
-	idx, err := search.NewIndex(filepath.Join(store, ".index"), []string{"proj"})
-	if err != nil {
-		t.Fatalf("NewIndex() error: %v", err)
-	}
+	idx := newIndexReady(t, filepath.Join(store, ".index"), []string{"proj"})
 	defer idx.Close()
 
 	// Init writes into the store.

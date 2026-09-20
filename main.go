@@ -17,7 +17,6 @@ import (
 
 	"github.com/renderorange/knowledge-mcp/hook"
 	"github.com/renderorange/knowledge-mcp/install"
-	"github.com/renderorange/knowledge-mcp/knowledge"
 	"github.com/renderorange/knowledge-mcp/projects"
 	"github.com/renderorange/knowledge-mcp/search"
 	"github.com/renderorange/knowledge-mcp/tools"
@@ -66,6 +65,7 @@ func main() {
 	globalPath := flag.String("global", "", "Path to a global knowledge store shared across all projects")
 	indexOverride := flag.String("index", "", "Override the search index location")
 	storeDir := flag.String("store", "", "Central directory for all knowledge stores; in-tree .agents/ is ignored when set")
+	noIndexOnStartup := flag.Bool("no-index-on-startup", false, "Skip indexing on startup; index may be stale or empty")
 	flag.Var(&roots, "root", "Org root whose immediate children are projects (repeatable)")
 	flag.Var(&projs, "project", "Single project root (repeatable)")
 	flag.Parse()
@@ -100,7 +100,9 @@ func main() {
 	}
 	defer idx.Close()
 
-	indexAll(resolver, idx)
+	if !*noIndexOnStartup {
+		go idx.IndexAll(resolver)
+	}
 
 	// Create MCP server
 	s := server.NewMCPServer(
@@ -126,70 +128,6 @@ func main() {
 	// Start stdio server
 	if err := server.ServeStdio(s); err != nil {
 		log.Fatalf("server error: %v", err)
-	}
-}
-
-// indexAll indexes every ref known to the resolver.
-func indexAll(res *projects.Resolver, idx *search.Index) {
-	for _, ref := range res.Snapshot() {
-		switch ref.Kind {
-		case projects.KindProject:
-			indexProjectKnowledge(res.AgentsDir(ref), ref.Address, idx)
-		case projects.KindOrg:
-			indexOrgKnowledge(res.OrgKnowledgeDir(ref), ref.Name, idx)
-		case projects.KindGlobal:
-			indexProjectKnowledge(res.AgentsDir(ref), ref.Address, idx)
-		}
-	}
-}
-
-// indexProjectKnowledge indexes all knowledge files under an agents dir
-// under the given addressing name.
-func indexProjectKnowledge(agentsDir, projectName string, idx *search.Index) {
-	for _, cat := range knowledge.ValidCategories() {
-		catPath := knowledge.CategoryFilePath(agentsDir, cat)
-		kf, err := knowledge.Load(catPath)
-		if err != nil {
-			continue
-		}
-		for _, entry := range kf.Entries {
-			doc := search.SearchDocument{
-				Summary:  entry.Summary,
-				Detail:   entry.Detail,
-				Rule:     entry.Rule,
-				Category: cat,
-				Project:  projectName,
-			}
-			if addErr := idx.Add(projectName+"/"+entry.ID, doc); addErr != nil {
-				log.Printf("warning: failed to index %s/%s: %v", projectName, entry.ID, addErr)
-			}
-		}
-	}
-}
-
-// indexOrgKnowledge indexes an org's knowledge files as individual markdown
-// sections, so queries return only the relevant section instead of the
-// entire document.
-func indexOrgKnowledge(knowledgeDir, orgName string, idx *search.Index) {
-	for _, catFile := range []string{"architecture.md", "review.md"} {
-		filePath := filepath.Join(knowledgeDir, catFile)
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			continue
-		}
-		for _, sec := range knowledge.SplitSections(string(data)) {
-			heading, body := sec[0], sec[1]
-			doc := search.SearchDocument{
-				Summary:  fmt.Sprintf("%s: %s", catFile, heading),
-				Detail:   body,
-				Category: "conventions",
-				Project:  orgName,
-			}
-			id := fmt.Sprintf("%s/org-%s::%s", orgName, catFile, heading)
-			if addErr := idx.Add(id, doc); addErr != nil {
-				log.Printf("warning: failed to index %s: %v", id, addErr)
-			}
-		}
 	}
 }
 

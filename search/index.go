@@ -9,10 +9,13 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/mapping"
 	"github.com/blevesearch/bleve/v2/search/query"
+	"github.com/renderorange/knowledge-mcp/knowledge"
+	"github.com/renderorange/knowledge-mcp/projects"
 )
 
 // metaFileVersion is the on-disk key-format version. A mismatch forces an index rebuild.
@@ -54,6 +57,8 @@ type SearchResult struct {
 type Index struct {
 	indexPath string
 	index     bleve.Index
+	ready     chan struct{} // closed when indexing completes or stale data exists
+	readyOnce sync.Once     // guards close of ready to prevent double-close panic
 }
 
 // NewIndex opens or creates a bleve index at the given path. indexNames is the
@@ -97,7 +102,14 @@ func NewIndex(indexPath string, indexNames []string) (*Index, error) {
 		return nil, fmt.Errorf("write index meta: %w", marshalErr)
 	}
 
-	return &Index{indexPath: indexPath, index: idx}, nil
+	ki := &Index{indexPath: indexPath, index: idx, ready: make(chan struct{})}
+
+	// If index has data, close ready immediately (stale data available)
+	if ki.indexHasData() {
+		ki.CloseReady()
+	}
+
+	return ki, nil
 }
 
 func metaFilePath(indexPath string) string {
@@ -196,6 +208,9 @@ func (i *Index) Add(id string, doc SearchDocument) error {
 // Query searches the index, scoped to one project, with full-text
 // search and optional filters.
 func (i *Index) Query(project, q, category string, limit int) ([]SearchResult, error) {
+	// Block until indexing completes if no stale data available
+	<-i.ready
+
 	if limit <= 0 {
 		limit = 10
 	}
@@ -270,6 +285,92 @@ func (i *Index) Query(project, q, category string, limit int) ([]SearchResult, e
 // Close closes the bleve index.
 func (i *Index) Close() error {
 	return i.index.Close()
+}
+
+// CloseReady closes the ready channel exactly once, preventing double-close panics.
+// This is used by tests that add documents directly without IndexAll.
+func (i *Index) CloseReady() {
+	i.readyOnce.Do(func() { close(i.ready) })
+}
+
+// indexHasData reports whether the index contains any documents.
+func (i *Index) indexHasData() bool {
+	req := bleve.NewSearchRequest(bleve.NewMatchAllQuery())
+	req.Size = 0
+	result, err := i.index.Search(req)
+	if err != nil {
+		return false
+	}
+	return result.Total > 0
+}
+
+// WaitReady blocks until the index has data available for queries.
+func (i *Index) WaitReady() {
+	<-i.ready
+}
+
+// IndexAll indexes all projects known to the resolver in the background.
+// It closes the ready channel when complete.
+func (i *Index) IndexAll(res *projects.Resolver) {
+	defer i.CloseReady()
+
+	for _, ref := range res.Snapshot() {
+		switch ref.Kind {
+		case projects.KindProject:
+			i.indexProjectKnowledge(res.AgentsDir(ref), ref.Address)
+		case projects.KindOrg:
+			i.indexOrgKnowledge(res.OrgKnowledgeDir(ref), ref.Name)
+		case projects.KindGlobal:
+			i.indexProjectKnowledge(res.AgentsDir(ref), ref.Address)
+		}
+	}
+}
+
+// indexProjectKnowledge indexes all knowledge files under an agents dir.
+func (i *Index) indexProjectKnowledge(agentsDir, projectName string) {
+	for _, cat := range knowledge.ValidCategories() {
+		catPath := knowledge.CategoryFilePath(agentsDir, cat)
+		kf, err := knowledge.Load(catPath)
+		if err != nil {
+			continue
+		}
+		for _, entry := range kf.Entries {
+			doc := SearchDocument{
+				Summary:  entry.Summary,
+				Detail:   entry.Detail,
+				Rule:     entry.Rule,
+				Category: cat,
+				Project:  projectName,
+			}
+			if addErr := i.Add(projectName+"/"+entry.ID, doc); addErr != nil {
+				log.Printf("warning: failed to index %s/%s: %v", projectName, entry.ID, addErr)
+			}
+		}
+	}
+}
+
+// indexOrgKnowledge indexes an org's knowledge files as sections.
+func (i *Index) indexOrgKnowledge(knowledgeDir, orgName string) {
+	for _, catFile := range []string{"architecture.md", "review.md"} {
+		filePath := filepath.Join(knowledgeDir, catFile)
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			continue
+		}
+		for _, sec := range knowledge.SplitSections(string(data)) {
+			heading, body := sec[0], sec[1]
+			doc := SearchDocument{
+				Summary:  fmt.Sprintf("%s: %s", catFile, heading),
+				Detail:   body,
+				Category: "conventions",
+				Project:  orgName,
+			}
+			id := fmt.Sprintf("%s/org-%s::%s", orgName, catFile, heading)
+			if addErr := i.Add(id, doc); addErr != nil {
+				log.Printf("warning: failed to index %s: %v", id, addErr)
+			}
+		}
+	}
 }
 
 // DeleteIndex removes a bleve index directory.

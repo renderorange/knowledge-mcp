@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/renderorange/knowledge-mcp/projects"
 )
 
 func newIndex(t *testing.T, path string, names []string) *Index {
@@ -16,9 +19,18 @@ func newIndex(t *testing.T, path string, names []string) *Index {
 	return idx
 }
 
+// newIndexReady creates an index and closes the ready channel immediately,
+// for unit tests that add documents directly and query without IndexAll.
+func newIndexReady(t *testing.T, path string, names []string) *Index {
+	t.Helper()
+	idx := newIndex(t, path, names)
+	idx.CloseReady()
+	return idx
+}
+
 func TestIndexCreateAndQuery(t *testing.T) {
 	dir := t.TempDir()
-	idx := newIndex(t, filepath.Join(dir, "test.bleve"), []string{"test"})
+	idx := newIndexReady(t, filepath.Join(dir, "test.bleve"), []string{"test"})
 	defer idx.Close()
 
 	docs := []struct {
@@ -108,7 +120,7 @@ func TestIndexCreateAndQuery(t *testing.T) {
 func TestProjectScopingNoCrossProjectLeakage(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := filepath.Join(dir, "test.bleve")
-	idx := newIndex(t, indexPath, []string{"alpha", "beta"})
+	idx := newIndexReady(t, indexPath, []string{"alpha", "beta"})
 	defer idx.Close()
 
 	// Same bare entry ID in two projects — must not overwrite each other.
@@ -195,7 +207,7 @@ func TestIndexRebuildOnNameSetChange(t *testing.T) {
 	idx2.Close()
 
 	// Different name set: rebuild, old docs gone.
-	idx3 := newIndex(t, indexPath, []string{"alpha", "beta"})
+	idx3 := newIndexReady(t, indexPath, []string{"alpha", "beta"})
 	defer idx3.Close()
 	results, err = idx3.Query("alpha", "", "", 10)
 	if err != nil {
@@ -208,7 +220,7 @@ func TestIndexRebuildOnNameSetChange(t *testing.T) {
 
 func TestIndexEmptyQuery(t *testing.T) {
 	dir := t.TempDir()
-	idx := newIndex(t, filepath.Join(dir, "test.bleve"), []string{"test"})
+	idx := newIndexReady(t, filepath.Join(dir, "test.bleve"), []string{"test"})
 	defer idx.Close()
 
 	if err := idx.Add("test/test-001", SearchDocument{
@@ -228,7 +240,7 @@ func TestIndexEmptyQuery(t *testing.T) {
 
 func TestQueryEscapesSpecialCharacters(t *testing.T) {
 	dir := t.TempDir()
-	idx := newIndex(t, filepath.Join(dir, "test.bleve"), []string{"test"})
+	idx := newIndexReady(t, filepath.Join(dir, "test.bleve"), []string{"test"})
 	defer idx.Close()
 
 	if err := idx.Add("test/conv-001", SearchDocument{
@@ -295,7 +307,7 @@ func TestIndexRecoverFromCorruption(t *testing.T) {
 	}
 
 	// Opening should recover from corruption, not fail
-	idx2 := newIndex(t, indexPath, []string{"test"})
+	idx2 := newIndexReady(t, indexPath, []string{"test"})
 	defer idx2.Close()
 
 	// Old data is gone (rebuilt), but server should work
@@ -322,6 +334,255 @@ func TestIndexRecoverFromCorruption(t *testing.T) {
 	}
 }
 
+func TestIndexHasData(t *testing.T) {
+	dir := t.TempDir()
+	indexPath := filepath.Join(dir, "test.bleve")
+
+	idx := newIndex(t, indexPath, []string{"test"})
+	defer idx.Close()
+	if idx.indexHasData() {
+		t.Error("empty index should not have data")
+	}
+
+	if err := idx.Add("test/conv-001", SearchDocument{Summary: "test", Project: "test"}); err != nil {
+		t.Fatalf("Add() error: %v", err)
+	}
+
+	if !idx.indexHasData() {
+		t.Error("index with data should have data")
+	}
+}
+
+func TestWaitReadyBlocksWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	indexPath := filepath.Join(dir, "test.bleve")
+
+	idx := newIndex(t, indexPath, []string{"test"})
+	defer idx.Close()
+
+	// ready channel should be open (blocking) for empty index
+	select {
+	case <-idx.ready:
+		t.Error("ready channel should not be closed for empty index")
+	default:
+		// expected: channel is open (blocking)
+	}
+}
+
+func TestWaitReadyReturnsImmediatelyWithData(t *testing.T) {
+	dir := t.TempDir()
+	indexPath := filepath.Join(dir, "test.bleve")
+
+	idx := newIndex(t, indexPath, []string{"test"})
+	if err := idx.Add("test/conv-001", SearchDocument{Summary: "test", Project: "test"}); err != nil {
+		t.Fatalf("Add() error: %v", err)
+	}
+	idx.Close()
+
+	// Reopen — index has data, ready should be closed immediately
+	idx2 := newIndex(t, indexPath, []string{"test"})
+	defer idx2.Close()
+
+	select {
+	case <-idx2.ready:
+		// expected: channel is closed (stale data available)
+	default:
+		t.Error("ready channel should be closed for index with stale data")
+	}
+}
+
+func TestIndexAllBackground(t *testing.T) {
+	dir := t.TempDir()
+	indexPath := filepath.Join(dir, "test.bleve")
+
+	idx := newIndex(t, indexPath, []string{"test-project"})
+	defer idx.Close()
+
+	// Create a mock knowledge file
+	agentsDir := filepath.Join(dir, "test-project", ".agents")
+	if err := os.MkdirAll(agentsDir, 0755); err != nil {
+		t.Fatalf("MkdirAll() error: %v", err)
+	}
+	conventionsPath := filepath.Join(agentsDir, "conventions.yaml")
+	if err := os.WriteFile(conventionsPath, []byte(`entries:
+- id: conv-001
+  summary: Test convention
+  detail: Test detail
+`), 0644); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
+
+	// Create a resolver with the test project
+	resolver, _, err := projects.BuildWithStore(nil, []string{filepath.Join(dir, "test-project")}, "", "")
+	if err != nil {
+		t.Fatalf("BuildWithStore() error: %v", err)
+	}
+
+	// IndexAll should complete and close ready channel
+	go idx.IndexAll(resolver)
+
+	// Wait for indexing to complete (with timeout)
+	select {
+	case <-idx.ready:
+		// success
+	case <-time.After(5 * time.Second):
+		t.Fatal("IndexAll did not complete within timeout")
+	}
+
+	// Query should find the indexed document
+	results, err := idx.Query("test-project", "convention", "", 10)
+	if err != nil {
+		t.Fatalf("Query() error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	if results[0].Summary != "Test convention" {
+		t.Errorf("summary = %q, want %q", results[0].Summary, "Test convention")
+	}
+}
+
+func TestIndexAllWithExistingDataNoDoubleClosePanic(t *testing.T) {
+	dir := t.TempDir()
+	indexPath := filepath.Join(dir, "test.bleve")
+
+	// Create index and add a document, then close.
+	idx := newIndex(t, indexPath, []string{"test-project"})
+	if err := idx.Add("test-project/conv-001", SearchDocument{
+		Summary: "persisted doc", Project: "test-project",
+	}); err != nil {
+		t.Fatalf("Add() error: %v", err)
+	}
+	idx.Close()
+
+	// Reopen — NewIndex will close ready because index has data.
+	idx2 := newIndex(t, indexPath, []string{"test-project"})
+	defer idx2.Close()
+
+	// Verify ready is already closed.
+	select {
+	case <-idx2.ready:
+		// expected
+	default:
+		t.Fatal("ready channel should be closed for index with stale data")
+	}
+
+	// Create a resolver so IndexAll can run.
+	agentsDir := filepath.Join(dir, "test-project", ".agents")
+	if err := os.MkdirAll(agentsDir, 0755); err != nil {
+		t.Fatalf("MkdirAll() error: %v", err)
+	}
+	conventionsPath := filepath.Join(agentsDir, "conventions.yaml")
+	if err := os.WriteFile(conventionsPath, []byte(`entries:
+- id: conv-001
+  summary: Test convention
+  detail: Test detail
+`), 0644); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
+
+	resolver, _, err := projects.BuildWithStore(nil, []string{filepath.Join(dir, "test-project")}, "", "")
+	if err != nil {
+		t.Fatalf("BuildWithStore() error: %v", err)
+	}
+
+	// IndexAll must NOT panic — it should handle the already-closed ready channel.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		idx2.IndexAll(resolver)
+	}()
+
+	select {
+	case <-done:
+		// success: no panic
+	case <-time.After(5 * time.Second):
+		t.Fatal("IndexAll did not complete within timeout")
+	}
+
+	results, err := idx2.Query("test-project", "convention", "", 10)
+	if err != nil {
+		t.Fatalf("Query() error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+}
+
+func TestBackgroundIndexingIntegration(t *testing.T) {
+	dir := t.TempDir()
+	indexPath := filepath.Join(dir, "test.bleve")
+
+	// Create index with no data (ready channel should be open)
+	idx := newIndex(t, indexPath, []string{"test"})
+
+	// Verify ready is blocking
+	select {
+	case <-idx.ready:
+		t.Fatal("ready should not be closed for empty index")
+	default:
+		// expected
+	}
+
+	// Create knowledge files
+	agentsDir := filepath.Join(dir, "project1", ".agents")
+	if err := os.MkdirAll(agentsDir, 0755); err != nil {
+		t.Fatalf("MkdirAll() error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentsDir, "conventions.yaml"), []byte(`entries:
+- id: conv-001
+  summary: First convention
+  detail: Detail 1
+- id: conv-002
+  summary: Second convention
+  detail: Detail 2
+`), 0644); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
+
+	// Build resolver
+	resolver, _, err := projects.BuildWithStore(nil, []string{filepath.Join(dir, "project1")}, "", "")
+	if err != nil {
+		t.Fatalf("BuildWithStore() error: %v", err)
+	}
+
+	// Start background indexing
+	go idx.IndexAll(resolver)
+
+	// WaitReady should block until IndexAll completes
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		idx.WaitReady()
+	}()
+
+	select {
+	case <-done:
+		// success: WaitReady returned after indexing
+	case <-time.After(5 * time.Second):
+		t.Fatal("WaitReady did not return within timeout")
+	}
+
+	// Verify ready is now closed
+	select {
+	case <-idx.ready:
+		// expected
+	default:
+		t.Fatal("ready should be closed after IndexAll completes")
+	}
+
+	// Query should return the indexed documents
+	results, err := idx.Query("project1", "convention", "", 10)
+	if err != nil {
+		t.Fatalf("Query() error: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("len(results) = %d, want 2", len(results))
+	}
+
+	idx.Close()
+}
+
 func TestIndexRecoverFromSilentCorruption(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := filepath.Join(dir, "test.bleve")
@@ -345,7 +606,7 @@ func TestIndexRecoverFromSilentCorruption(t *testing.T) {
 	}
 
 	// Opening should detect the unhealthy index and rebuild
-	idx2 := newIndex(t, indexPath, []string{"test"})
+	idx2 := newIndexReady(t, indexPath, []string{"test"})
 	defer idx2.Close()
 
 	// Old data is gone (rebuilt), but server should work
