@@ -320,3 +320,56 @@ func TestIndexRecoverFromCorruption(t *testing.T) {
 		t.Errorf("len(results) = %d, want 1", len(results))
 	}
 }
+
+func TestIndexRecoverFromSilentCorruption(t *testing.T) {
+	dir := t.TempDir()
+	indexPath := filepath.Join(dir, "test.bleve")
+
+	// Create index and add a document
+	idx := newIndex(t, indexPath, []string{"test"})
+	if err := idx.Add("test/conv-001", SearchDocument{
+		Summary: "original doc", Project: "test",
+	}); err != nil {
+		t.Fatalf("Add() error: %v", err)
+	}
+	idx.Close()
+
+	// Corrupt root.bolt by truncating it — this simulates the case
+	// where the file is partially written or has stale pages that
+	// allow Open() to succeed but break internal operations.
+	boltPath := filepath.Join(indexPath, "store", "root.bolt")
+	info, err := os.Stat(boltPath)
+	if err != nil {
+		t.Fatalf("Stat(%s) error: %v", boltPath, err)
+	}
+	if err := os.Truncate(boltPath, info.Size()/2); err != nil {
+		t.Fatalf("Truncate() error: %v", err)
+	}
+
+	// Opening should detect the unhealthy index and rebuild
+	idx2 := newIndex(t, indexPath, []string{"test"})
+	defer idx2.Close()
+
+	// Old data is gone (rebuilt), but server should work
+	results, err := idx2.Query("test", "", "", 10)
+	if err != nil {
+		t.Fatalf("Query() after recovery error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("len(results) = %d, want 0 (old data should be gone after rebuild)", len(results))
+	}
+
+	// Can add new data after recovery
+	if err := idx2.Add("test/conv-003", SearchDocument{
+		Summary: "new doc after silent recovery", Project: "test",
+	}); err != nil {
+		t.Fatalf("Add() after recovery error: %v", err)
+	}
+	results, err = idx2.Query("test", "silent", "", 10)
+	if err != nil {
+		t.Fatalf("Query() after recovery error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("len(results) = %d, want 1", len(results))
+	}
+}
