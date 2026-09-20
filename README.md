@@ -174,6 +174,13 @@ General notes:
 - Multi-entry configurations store the search index under `$XDG_STATE_HOME/knowledge-mcp/` (default `~/.local/state/knowledge-mcp/`). Single-flag configurations keep the index inside their own `.agents/` — unless `--store` is set, in which case the index lives at `<store>/.index`.
 - `--index <path>` overrides the index location in all modes.
 
+### Startup Options
+
+`--no-index-on-startup` skips background indexing on startup. The server starts
+immediately with stale or empty index data; queries block until indexing completes
+if no stale data is available. Useful for large knowledge stores where startup
+indexing would delay server readiness.
+
 ## MCP Tools
 
 | Tool | Description |
