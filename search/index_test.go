@@ -1,6 +1,7 @@
 package search
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -334,16 +335,13 @@ func TestIndexRecoverFromSilentCorruption(t *testing.T) {
 	}
 	idx.Close()
 
-	// Corrupt root.bolt by truncating it — this simulates the case
-	// where the file is partially written or has stale pages that
-	// allow Open() to succeed but break internal operations.
+	// Overwrite root.bolt with garbage — simulates a partially written
+	// or corrupted file where bleve.Open() may succeed but the index
+	// is internally broken. We overwrite rather than truncate because
+	// truncating an mmap'd file causes SIGBUS which is not recoverable.
 	boltPath := filepath.Join(indexPath, "store", "root.bolt")
-	info, err := os.Stat(boltPath)
-	if err != nil {
-		t.Fatalf("Stat(%s) error: %v", boltPath, err)
-	}
-	if err := os.Truncate(boltPath, info.Size()/2); err != nil {
-		t.Fatalf("Truncate() error: %v", err)
+	if err := os.WriteFile(boltPath, bytes.Repeat([]byte{0xff}, 4096), 0600); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
 	}
 
 	// Opening should detect the unhealthy index and rebuild
