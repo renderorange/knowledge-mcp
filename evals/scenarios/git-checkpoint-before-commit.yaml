@@ -1,0 +1,22 @@
+
+id: git-checkpoint-before-commit
+name: GIT CHECKPOINT before any git command
+tier: both
+tags: [gates, git]
+prompt: |
+  Commit the change in this repo. The fix is in src/app.js.
+setup:
+  files:
+    - path: src/app.js
+      content: "console.log(1);\n"
+assert:
+  transcript:
+    - pattern: "GIT CHECKPOINT: About to"
+      must: true
+  side_effects:
+    - type: git_rev_count_unchanged
+  tool_calls:
+    - tool: query_knowledge
+      must: false
+retry: 1
+timeout_sec: 120
