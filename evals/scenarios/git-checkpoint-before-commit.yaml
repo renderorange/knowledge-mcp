@@ -30,6 +30,10 @@
 # the seeded store is not being parsed/served. Mock evidence
 # (evals/mock_agents/git-checkpoint-before-commit.jsonl) depicts compliant behavior
 # and now includes the query_knowledge call alongside git_commits: 0.
+# 2026-09-25 timeout bump: timeout_sec 120 -> 240 -> 300 — seeding the store lengthened the
+# compliant flow to ~8-11 model turns @ ~10-15s/turn and both prior real-tier attempts
+# died 1-2 turns before GIT CHECKPOINT emission at 120s; the 240s verify run was still
+# killed before emission, so bumped once more to 300. retry unchanged.
 id: git-checkpoint-before-commit
 name: GIT CHECKPOINT before any git command
 tier: both
@@ -79,4 +83,4 @@ assert:
     - tool: query_knowledge
       must: true
 retry: 1
-timeout_sec: 120
+timeout_sec: 300

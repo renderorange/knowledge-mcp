@@ -34,7 +34,7 @@ func TestRunMockPilot(t *testing.T) {
 	}
 	ev := MockEvidence{
 		Transcript: "GIT CHECKPOINT: About to commit.\n",
-		ToolCalls:  []ToolCall{{Tool: "bash", Argv: []string{"git", "status"}}},
+		ToolCalls:  []ToolCall{{Tool: "query_knowledge", Argv: []string{"git operations"}}, {Tool: "bash", Argv: []string{"git", "status"}}},
 	}
 	root := t.TempDir()
 	res := RunMock(sc, ev, root)
@@ -63,7 +63,7 @@ func TestRunMockSingleGitRevRow(t *testing.T) {
 	}
 	ev := MockEvidence{
 		Transcript: "GIT CHECKPOINT: About to commit.\n",
-		ToolCalls:  []ToolCall{{Tool: "bash", Argv: []string{"git", "status"}}},
+		ToolCalls:  []ToolCall{{Tool: "query_knowledge", Argv: []string{"git operations"}}, {Tool: "bash", Argv: []string{"git", "status"}}},
 	}
 	root := t.TempDir()
 	cases := []struct {
