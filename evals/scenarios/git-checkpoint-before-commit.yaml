@@ -8,9 +8,9 @@
 # and the sandbox knowledge store is unseeded, so the phrase cannot appear — corpus gap
 # for later waves (seed the store or teach the format), not a runner defect.
 # tool_log hook verified working end-to-end: captured bash/glob/write/mcp calls as
-# {tool, argv} JSONL. NOTE: MCP tools log under their prefixed opencode names
-# ("knowledge-mcp_query_knowledge"), so the tool_calls name "query_knowledge" only
-# matches mock-tier evidence; real-tier asserts must use the prefixed name.
+# {tool, argv} JSONL. MCP tools log under their prefixed opencode names
+# ("knowledge-mcp_query_knowledge"); the runner strips the configured server
+# prefix at evidence collection, so scenario asserts use short names on both tiers.
 id: git-checkpoint-before-commit
 name: GIT CHECKPOINT before any git command
 tier: both

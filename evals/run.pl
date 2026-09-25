@@ -219,6 +219,7 @@ sub _tool_calls {
     if (!-e $path) {
         return ([], undef);
     }
+    my $prefixes = _mcp_prefixes($sb);
     my @calls;
     my $err;
     my $n = 0;
@@ -238,6 +239,16 @@ sub _tool_calls {
             if (defined $err) {
                 last;
             }
+            if (ref($row) eq "HASH" && defined $row->{tool}) {
+                my $name = "$row->{tool}";
+                for my $prefix (@$prefixes) {
+                    if (index($name, $prefix) == 0) {
+                        $name = substr($name, length($prefix));
+                        last;
+                    }
+                }
+                $row->{tool} = $name;
+            }
             push @calls, $row;
         }
         close $fh;
@@ -249,6 +260,40 @@ sub _tool_calls {
         return ([], $err);
     }
     return (\@calls, undef);
+}
+
+# _mcp_prefixes reads the sandbox opencode config and returns the "<server>_"
+# prefixes opencode gives MCP tool names (spike convention: <server>_<tool>).
+# An unreadable or malformed config yields no prefixes, so names pass through
+# unstripped instead of guessing.
+sub _mcp_prefixes {
+    my ($sb) = @_;
+    my $path = $ENV{OPENCODE_CONFIG} || "$sb->{home}/.config/opencode/opencode.jsonc";
+    my $raw = "";
+    if (open my $fh, "<", $path) {
+        local $/;
+        $raw = <$fh> // "";
+        close $fh;
+    }
+    else {
+        return [];
+    }
+    my $doc;
+    Try::Tiny::try {
+        $doc = JSON::PP::decode_json($raw);
+    }
+    Try::Tiny::catch {
+        $doc = undef;
+    };
+    if (ref($doc) ne "HASH") {
+        return [];
+    }
+    if (ref($doc->{mcp}) ne "HASH") {
+        return [];
+    }
+    my @prefixes = map { $_ . "_" } keys %{ $doc->{mcp} };
+    @prefixes = sort { length($b) <=> length($a) } @prefixes;
+    return \@prefixes;
 }
 
 sub _new_files {
