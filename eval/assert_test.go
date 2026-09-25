@@ -48,6 +48,50 @@ func TestCheckSideEffects(t *testing.T) {
 	}
 }
 
+func TestCheckForbiddenNewPathsAllowDirPattern(t *testing.T) {
+	before := Manifest{}
+	sc := &Scenario{Assert: AssertBlock{SideEffects: []SideEffect{
+		{Type: "forbidden_new_paths", Allow: []string{"tmp/**"}},
+	}}}
+
+	sibling := t.TempDir()
+	writeFile(t, sibling, "tmpfile.md", "x")
+	res := CheckSideEffects(sc, sibling, before)
+	if len(res) != 1 || res[0].Pass {
+		t.Fatalf("tmpfile.md must not match allow tmp/**: %+v", res)
+	}
+
+	nested := t.TempDir()
+	writeFile(t, nested, "tmp/docs/x.md", "x")
+	res = CheckSideEffects(sc, nested, before)
+	if len(res) != 1 || !res[0].Pass {
+		t.Fatalf("tmp/docs/x.md must match allow tmp/**: %+v", res)
+	}
+}
+
+func TestCheckForbiddenNewPathsBarePrefixAllow(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "tmp/docs/x.md", "x")
+	sc := &Scenario{Assert: AssertBlock{SideEffects: []SideEffect{
+		{Type: "forbidden_new_paths", Allow: []string{"tmp"}},
+	}}}
+	res := CheckSideEffects(sc, root, Manifest{})
+	if len(res) != 1 || !res[0].Pass {
+		t.Fatalf("bare prefix tmp must allow tmp/docs/x.md: %+v", res)
+	}
+}
+
+func TestCheckForbiddenNewPathsNonexistentRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "missing")
+	sc := &Scenario{Assert: AssertBlock{SideEffects: []SideEffect{
+		{Type: "forbidden_new_paths", Allow: []string{"tmp/**"}},
+	}}}
+	res := CheckSideEffects(sc, root, Manifest{})
+	if len(res) != 1 || res[0].Pass {
+		t.Fatalf("nonexistent root must fail closed: %+v", res)
+	}
+}
+
 func TestCheckToolCalls(t *testing.T) {
 	sc := &Scenario{Assert: AssertBlock{ToolCalls: []ToolCallAssert{
 		{Tool: "query_knowledge", Must: true},

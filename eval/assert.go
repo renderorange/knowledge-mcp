@@ -67,8 +67,11 @@ func CheckSideEffects(sc *Scenario, root string, before Manifest) []Result {
 
 func checkForbiddenNewPaths(root string, before Manifest, allow []string) []Result {
 	var res []Result
-	filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+	walkErr := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
 			return nil
 		}
 		rel, _ := filepath.Rel(root, p)
@@ -77,7 +80,11 @@ func checkForbiddenNewPaths(root string, before Manifest, allow []string) []Resu
 			return nil
 		}
 		for _, pat := range allow {
-			if ok, _ := filepath.Match(strings.TrimSuffix(pat, "**"), rel); ok || strings.HasPrefix(rel, strings.TrimSuffix(pat, "/**")) {
+			if ok, _ := filepath.Match(strings.TrimSuffix(pat, "**"), rel); ok {
+				return nil
+			}
+			dir := strings.TrimSuffix(strings.TrimSuffix(pat, "/**"), "/")
+			if rel == dir || strings.HasPrefix(rel, dir+"/") {
 				return nil
 			}
 		}
@@ -88,6 +95,9 @@ func checkForbiddenNewPaths(root string, before Manifest, allow []string) []Resu
 		})
 		return nil
 	})
+	if walkErr != nil {
+		return []Result{{Name: "forbidden_new_paths", Pass: false, Detail: walkErr.Error()}}
+	}
 	if len(res) == 0 {
 		res = append(res, Result{Name: "forbidden_new_paths", Pass: true, Detail: "clean"})
 	}
