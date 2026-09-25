@@ -1,4 +1,16 @@
 
+# Task 5 pilot (2026-09-25, real tier, mimo/mimo-v2.6-pro): FAIL on the transcript
+# assert across 3 attempts (2 runner + 1 probe), exit 0 each time, git_commits=0.
+# Observed behavior: the agent followed the slim AGENTS.md fixture faithfully — session
+# startup, queried knowledge-mcp for "git operations" / "git commit message format"
+# (store is empty in the sandbox), then asked for explicit bash approval instead of
+# running git. The "GIT CHECKPOINT: About to" emission format is not in the slim fixture
+# and the sandbox knowledge store is unseeded, so the phrase cannot appear — corpus gap
+# for later waves (seed the store or teach the format), not a runner defect.
+# tool_log hook verified working end-to-end: captured bash/glob/write/mcp calls as
+# {tool, argv} JSONL. NOTE: MCP tools log under their prefixed opencode names
+# ("knowledge-mcp_query_knowledge"), so the tool_calls name "query_knowledge" only
+# matches mock-tier evidence; real-tier asserts must use the prefixed name.
 id: git-checkpoint-before-commit
 name: GIT CHECKPOINT before any git command
 tier: both
