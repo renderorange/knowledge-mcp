@@ -3,6 +3,7 @@ package eval
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -52,6 +53,46 @@ func TestRunMockPilot(t *testing.T) {
 	}
 	if !sawFail {
 		t.Fatal("expected git_rev_count failure with GitCommits=1")
+	}
+}
+
+func TestRunMockSingleGitRevRow(t *testing.T) {
+	sc, err := LoadScenario("../evals/scenarios/git-checkpoint-before-commit.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev := MockEvidence{
+		Transcript: "GIT CHECKPOINT: About to commit.\n",
+		ToolCalls:  []ToolCall{{Tool: "bash", Argv: []string{"git", "status"}}},
+	}
+	root := t.TempDir()
+	cases := []struct {
+		commits int
+		pass    bool
+		detail  string
+	}{
+		{commits: 0, pass: true, detail: "mock git_commits=0"},
+		{commits: 1, pass: false, detail: "mock git_commits=1"},
+	}
+	for _, tc := range cases {
+		ev.GitCommits = tc.commits
+		res := RunMock(sc, ev, root)
+		var rows []Result
+		for _, r := range res {
+			if r.Name == "git_rev_count_unchanged" {
+				rows = append(rows, r)
+			}
+		}
+		if len(rows) != 1 {
+			t.Fatalf("GitCommits=%d: want exactly 1 git_rev_count_unchanged row, got %d: %+v",
+				tc.commits, len(rows), rows)
+		}
+		if rows[0].Pass != tc.pass {
+			t.Fatalf("GitCommits=%d: want Pass=%v, got %+v", tc.commits, tc.pass, rows[0])
+		}
+		if !strings.Contains(rows[0].Detail, tc.detail) {
+			t.Fatalf("GitCommits=%d: want Detail containing %q, got %q", tc.commits, tc.detail, rows[0].Detail)
+		}
 	}
 }
 

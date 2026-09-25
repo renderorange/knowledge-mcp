@@ -67,7 +67,12 @@ func RunMock(sc *Scenario, ev MockEvidence, root string) []Result {
 		writeMockFile(root, nf)
 	}
 	results := CheckTranscript(sc, ev.Transcript)
-	results = append(results, CheckSideEffects(sc, root, before)...)
+	for _, se := range CheckSideEffects(sc, root, before) {
+		if se.Name == "git_rev_count_unchanged" && se.Detail == "checked by evidence-based runner" {
+			continue
+		}
+		results = append(results, se)
+	}
 	results = append(results, CheckToolCalls(sc, ev.ToolCalls)...)
 	for _, se := range sc.Assert.SideEffects {
 		if se.Type == "git_rev_count_unchanged" {
