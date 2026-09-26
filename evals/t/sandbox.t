@@ -259,6 +259,7 @@ my $sb_uni;
 }
 my $wide_count = grep { /Wide character/ } @wide_warns;
 is($wide_count, 0, "no wide-character warnings when writing UTF-8 content");
+is(scalar @wide_warns, 0, "no other warnings when writing UTF-8 content");
 my $uni_raw = "";
 if (open my $uf, "<:raw", "$sb_uni->{project}/uni.txt") {
     local $/;

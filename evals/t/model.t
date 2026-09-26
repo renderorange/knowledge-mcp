@@ -184,4 +184,26 @@ isnt($exit5, 0, "malformed model exits non-zero");
 like($out5, qr/model must be in provider\/model form/, "malformed model dies with the shape error");
 ok(!-e $argv5, "malformed model dies before spawning opencode");
 
+my $argv5b = File::Spec->catfile($tree, "argv5b.json");
+my ($exit5b, $out5b) = _run_probe({
+    argv_file => $argv5b,
+    env       => "anthropic/claude-sonnet-4",
+    flag      => "   ",
+});
+is($exit5b, 0, "whitespace flag run exits 0");
+is(_model_from_argv($argv5b), "anthropic/claude-sonnet-4", "whitespace-only --model falls through to KNM_MODEL");
+
+my $mimo_only = '{"provider":{"mimo":{"npm":"@ai-sdk/openai-compatible","name":"MiMo","options":'
+    . '{"baseURL":"https://example.invalid/v1","apiKey":"test-key"},"models":'
+    . '{"mimo-v2.6-pro":{"name":"mimo-v2.6-pro"}}}}}';
+_write_file({
+    path    => File::Spec->catfile($tree, "home", ".config", "opencode", "opencode.jsonc"),
+    content => $mimo_only,
+});
+my $argv6 = File::Spec->catfile($tree, "argv6.json");
+my ($exit6, $out6) = _spawn_via_shell({ argv_file => $argv6, flag => "openai/gpt-x" });
+isnt($exit6, 0, "absent provider block exits non-zero");
+like($out6, qr/need the openai provider block for model openai\/gpt-x/, "absent provider error names the provider key and model");
+ok(!-e $argv6, "absent provider block dies before spawning opencode");
+
 done_testing
