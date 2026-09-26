@@ -39,6 +39,7 @@ sub _write_file {
 _copy_rel({ rel => "run.pl" });
 _copy_rel({ rel => "lib/Eval/Assert.pm" });
 _copy_rel({ rel => "lib/Eval/Sandbox.pm" });
+_copy_rel({ rel => "lib/Eval/Judge.pm" });
 _copy_rel({ rel => "fixtures/AGENTS.md" });
 
 _write_file({

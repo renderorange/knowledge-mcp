@@ -11,6 +11,7 @@ use YAML::PP ();
 use File::Find ();
 use Eval::Sandbox;
 use Eval::Assert;
+use Eval::Judge;
 
 my ($want_scenario, $want_tag, $xml_path, $mock, $want_model);
 Getopt::Long::GetOptions(
@@ -86,7 +87,10 @@ sub _resolve_model {
 
 sub run_one {
     my ($sc, $bin, $mock) = @_;
-    my $attempts = 1 + ($sc->{retry} || 0);
+    my $attempts = 1;
+    if (!$mock && $sc->{retry}) {
+        $attempts = 1 + $sc->{retry};
+    }
     my $last;
     for my $try (1 .. $attempts) {
         if ($mock) {
@@ -98,8 +102,33 @@ sub run_one {
         if (!$last->{failed}) {
             last;
         }
+        if ($try >= $attempts) {
+            last;
+        }
+        if (!_flakeable($last->{checks})) {
+            last;
+        }
     }
     return $last;
+}
+
+# _flakeable reports whether any failing check row is retry-sensitive
+# (runner/tooling noise or judge calls). Deterministic assertion failures
+# never retry — a rerun cannot change them.
+sub _flakeable {
+    my ($checks) = @_;
+    for my $c (@$checks) {
+        if ($c->{pass}) {
+            next;
+        }
+        if ($c->{name} eq "runner_timeout" || $c->{name} eq "opencode_exit" || $c->{name} eq "tool_log") {
+            return 1;
+        }
+        if (index($c->{name}, "judge") == 0) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 sub attempt {
@@ -163,6 +192,30 @@ sub attempt {
             $detail .= "; infra flake (bedrock model error), not a scenario regression";
         }
         push @checks, { name => "opencode_exit", pass => 0, detail => $detail };
+    }
+    my $pre_failed = grep { !$_->{pass} } @checks;
+    if (!$pre_failed && defined $sc->{judge}) {
+        my $judge_row;
+        Try::Tiny::try {
+            my $j = Eval::Judge->grade($sc, $transcript, {
+                model => $sb->{model},
+                dir   => $sb->{project},
+            });
+            my $min = defined $sc->{judge}{min} ? "$sc->{judge}{min}" : "0";
+            $judge_row = {
+                name   => "judge score=$j->{score} min=$min",
+                pass   => $j->{pass} ? 1 : 0,
+                detail => defined $j->{reason} ? "$j->{reason}" : "",
+            };
+        }
+        Try::Tiny::catch {
+            $judge_row = {
+                name   => "judge error",
+                pass   => 0,
+                detail => "judge crashed: $_",
+            };
+        };
+        push @checks, $judge_row;
     }
     my $failed = grep { !$_->{pass} } @checks;
     $sb->teardown();

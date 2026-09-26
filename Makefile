@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GOFLAGS := -ldflags "-X main.version=$(VERSION)"
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
-.PHONY: all build build-all test clean install lint fmt tidy eval-mock
+.PHONY: all build build-all test clean install lint fmt tidy eval-mock eval
 
 all: fmt tidy lint test build
 
@@ -49,3 +49,6 @@ tidy:
 
 eval-mock:
 	go test ./eval/ -v -run 'TestRunMock|TestScenarioCorpusValid|TestLoadMockEvidence'
+
+eval:
+	perl evals/run.pl $(if $(SCENARIO),--scenario $(SCENARIO)) $(if $(TAG),--tag $(TAG)) $(if $(MODEL),--model $(MODEL)) --xml ./tmp/docs/eval-results.xml
