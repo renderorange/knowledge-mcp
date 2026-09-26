@@ -23,14 +23,18 @@ sub build {
     if (ref($opts) ne "HASH") {
         $opts = {};
     }
+    my $model = defined $opts->{model} && "$opts->{model}" =~ /\S/ ? "$opts->{model}" : "mimo/mimo-v2.6-pro";
+    my ($provider_key) = split m{/}, $model, 2;
     my $root = File::Temp::tempdir("eval-XXXXXX", TMPDIR => 1, CLEANUP => 0);
     my %sb = (
-        root       => $root,
-        home       => "$root/home",
-        project    => "$root/project",
-        store      => "$root/store",
-        transcript => "$root/transcript.jsonl",
-        tool_log   => "$root/tool.jsonl",
+        root          => $root,
+        home          => "$root/home",
+        project       => "$root/project",
+        store         => "$root/store",
+        transcript    => "$root/transcript.jsonl",
+        tool_log      => "$root/tool.jsonl",
+        model         => $model,
+        provider_key  => $provider_key,
     );
     File::Path::make_path($sb{home} . "/.config/opencode/plugins", $sb{project}, $sb{store});
 
@@ -65,7 +69,7 @@ sub build {
         },
     };
     my $host_cfg_path = $opts->{host_config} || "$ENV{HOME}/.config/opencode/opencode.jsonc";
-    my $provider = _lift_provider($host_cfg_path);
+    my $provider = _lift_provider($host_cfg_path, $provider_key);
     my $provider_lifted = 0;
     if (defined $provider) {
         $cfg->{provider} = $provider;
@@ -174,11 +178,14 @@ sub _copy {
     return;
 }
 
-# _lift_provider copies the mimo provider block out of the host opencode
-# config so sandbox runs auth against the developer's real provider without
-# hardcoding credentials in the repository.
+# _lift_provider copies the provider block for the requested key out of the
+# host opencode config so sandbox runs auth against the developer's real
+# provider without hardcoding credentials in the repository.
 sub _lift_provider {
-    my ($path) = @_;
+    my ($path, $provider_key) = @_;
+    if (!defined $provider_key || $provider_key !~ /\S/) {
+        return undef;
+    }
     if (!-r $path) {
         return undef;
     }
@@ -204,10 +211,10 @@ sub _lift_provider {
     if (ref($doc->{provider}) ne "HASH") {
         return undef;
     }
-    if (ref($doc->{provider}{mimo}) ne "HASH") {
+    if (ref($doc->{provider}{$provider_key}) ne "HASH") {
         return undef;
     }
-    return { mimo => $doc->{provider}{mimo} };
+    return { $provider_key => $doc->{provider}{$provider_key} };
 }
 
 # _write_tool_log_plugin generates the opencode tool.execute.after plugin that

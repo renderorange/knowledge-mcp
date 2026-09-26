@@ -184,4 +184,63 @@ if (open my $pr, ">", $probe) {
 my $probe_rc = system($^X, $probe);
 is($probe_rc >> 8, 0, "fixtures_dir default is module-relative (works from a foreign script)");
 
+my $host_cfg2 = "$tmp/host2.json";
+my $host_raw2 = '{"provider":{"anthropic":{"npm":"@ai-sdk/anthropic","name":"Anthropic","options":'
+    . '{"baseURL":"https://example.invalid/v2","apiKey":"test-key"},"models":'
+    . '{"claude-sonnet-4":{"name":"claude-sonnet-4"}}},'
+    . '"mimo":{"npm":"@ai-sdk/openai-compatible","name":"MiMo","options":'
+    . '{"baseURL":"https://example.invalid/v1","apiKey":"test-key"},'
+    . '"models":{"mimo-v2.6-pro":{"name":"mimo-v2.6-pro"}}}}}';
+if (open my $h2, ">", $host_cfg2) {
+    print {$h2} $host_raw2;
+    close $h2;
+}
+
+my $sb_anth = Eval::Sandbox->build($sc, {
+    make_git     => 0,
+    model        => "anthropic/claude-sonnet-4",
+    host_config  => $host_cfg2,
+    fixtures_dir => "$FindBin::Bin/../fixtures",
+});
+is($sb_anth->{model}, "anthropic/claude-sonnet-4", "model option is stored on the sandbox");
+is($sb_anth->{provider_key}, "anthropic", "provider key derived from the model prefix");
+ok($sb_anth->{provider_lifted}, "provider lifted for a non-mimo model");
+my $anth_raw = "";
+if (open my $af, "<", "$sb_anth->{home}/.config/opencode/opencode.jsonc") {
+    local $/;
+    $anth_raw = <$af> // "";
+    close $af;
+}
+my $anth_doc = JSON::PP::decode_json($anth_raw);
+is($anth_doc->{provider}{anthropic}{npm}, "\@ai-sdk/anthropic", "generated config carries the anthropic provider block");
+ok(!exists $anth_doc->{provider}{mimo}, "unrelated provider block is not lifted");
+$sb_anth->teardown();
+
+my $sb_default = Eval::Sandbox->build($sc, {
+    make_git     => 0,
+    host_config  => $host_cfg,
+    fixtures_dir => "$FindBin::Bin/../fixtures",
+});
+is($sb_default->{model}, "mimo/mimo-v2.6-pro", "missing model option falls back to the default pin");
+is($sb_default->{provider_key}, "mimo", "default model yields the mimo provider key");
+ok($sb_default->{provider_lifted}, "default model still lifts the mimo provider block");
+$sb_default->teardown();
+
+my $sb_missing = Eval::Sandbox->build($sc, {
+    make_git     => 0,
+    model        => "openai/gpt-x",
+    host_config  => $host_cfg,
+    fixtures_dir => "$FindBin::Bin/../fixtures",
+});
+ok(!$sb_missing->{provider_lifted}, "provider_lifted is false when the requested provider block is absent");
+my $miss_raw = "";
+if (open my $mf, "<", "$sb_missing->{home}/.config/opencode/opencode.jsonc") {
+    local $/;
+    $miss_raw = <$mf> // "";
+    close $mf;
+}
+my $miss_doc = JSON::PP::decode_json($miss_raw);
+ok(!exists $miss_doc->{provider}, "no provider block invented when the requested provider is absent");
+$sb_missing->teardown();
+
 done_testing
