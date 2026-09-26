@@ -53,6 +53,51 @@ Try::Tiny::catch {
 };
 ok($bad_score_died, "non-numeric score dies");
 
+my $trailing = Eval::Judge::parse_response('{"score": 1, "reason": "ok"} hope this helps }');
+is($trailing->{score}, 1, "JSON with trailing prose/brace parses (first object wins)");
+
+my $bool_score_died = 0;
+Try::Tiny::try {
+    Eval::Judge::parse_response('{"score": true, "reason": "x"}');
+}
+Try::Tiny::catch {
+    $bool_score_died = 1;
+};
+ok($bool_score_died, "boolean score dies (never stringify a JSON true into an int)");
+
+my $float_score_died = 0;
+Try::Tiny::try {
+    Eval::Judge::parse_response('{"score": 2.5, "reason": "x"}');
+}
+Try::Tiny::catch {
+    $float_score_died = 1;
+};
+ok($float_score_died, "non-integer score dies");
+
+my $big = join "", map { "line $_ of the transcript with some padding words\n" } 1 .. 5000;
+my $clipped_prompt = Eval::Judge::_prompt(
+    { judge => { rubric => "r", scale => "0-2", min => 2 } },
+    $big,
+);
+my $clipped_bytes = length($clipped_prompt);
+cmp_ok($clipped_bytes, "<", 100_000, "judge prompt stays under the per-argument exec limit");
+like($clipped_prompt, qr/transcript truncated for judge prompt/, "oversized transcript is clipped with a marker");
+like($clipped_prompt, qr/line 1 of the transcript/, "clipped transcript keeps the head");
+like($clipped_prompt, qr/line 5000 of the transcript/, "clipped transcript keeps the tail");
+
+my $rubric_died = 0;
+Try::Tiny::try {
+    Eval::Judge::grade(
+        { id => "g", prompt => "x", judge => { scale => "0-2", min => 2 } },
+        "t",
+        { model => "anthropic/claude-sonnet-4", dir => "." },
+    );
+}
+Try::Tiny::catch {
+    $rubric_died = 1;
+};
+ok($rubric_died, "grade without a rubric dies before spawning");
+
 ok(Eval::Judge::passes({ min => 2 }, { score => 2 }), "score >= min passes");
 ok(!Eval::Judge::passes({ min => 2 }, { score => 1 }), "score < min fails");
 

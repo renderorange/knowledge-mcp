@@ -15,6 +15,7 @@ File::Path::make_path(
     File::Spec->catdir($dst_evals, "lib", "Eval"),
     File::Spec->catdir($dst_evals, "fixtures"),
     File::Spec->catdir($dst_evals, "scenarios"),
+    File::Spec->catdir($dst_evals, "mock_agents"),
     File::Spec->catdir($tree, "home", ".config", "opencode"),
     File::Spec->catdir($tree, "bin"),
 );
@@ -105,7 +106,11 @@ sub _run {
     local $ENV{FAKE_JUDGE} = defined $args->{judge} ? "$args->{judge}" : "";
     my $out = "";
     my $exit = 0;
-    if (open my $fh, "-|", $^X, $run_pl, "--scenario", $args->{id}) {
+    my @cmd = ($^X, $run_pl, "--scenario", $args->{id});
+    if ($args->{mock}) {
+        push @cmd, "--mock";
+    }
+    if (open my $fh, "-|", @cmd) {
         local $/;
         $out = <$fh> // "";
         close $fh;
@@ -234,5 +239,16 @@ is($c4->{judge}, 1, "judge runs exactly once after deterministic asserts pass");
 my ($exit5, $out5, $c5) = _run({ id => "judge-skip" });
 isnt($exit5, 0, "skip case exits non-zero");
 is($c5->{judge}, 0, "judge skipped when deterministic asserts fail (case 5)");
+
+_write_file({
+    path    => File::Spec->catfile($dst_evals, "mock_agents", "judge-ok.jsonl"),
+    content => '{"transcript": "fake opencode finished"}' . "\n" . '{"tool_calls": []}' . "\n"
+        . '{"new_files": []}' . "\n" . '{"git_commits": 0}' . "\n",
+});
+my ($exit6, $out6, $c6) = _run({ id => "judge-ok", mock => 1 });
+is($exit6, 0, "mock tier with a judge block still passes");
+is($c6->{judge}, 0, "mock tier never runs the judge");
+is($c6->{main}, 0, "mock tier never spawns opencode (no retry either)");
+unlike($out6, qr/judge score=|judge error/, "mock tier emits no judge rows");
 
 done_testing

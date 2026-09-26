@@ -9,6 +9,8 @@ use POSIX ();
 use Try::Tiny ();
 use YAML::PP ();
 use File::Find ();
+use File::Basename ();
+use File::Path ();
 use Eval::Sandbox;
 use Eval::Assert;
 use Eval::Judge;
@@ -487,6 +489,10 @@ sub report {
         }
     }
     if ($xml) {
+        my $dir = File::Basename::dirname($xml);
+        if ($dir ne "" && $dir ne "." && !-d $dir) {
+            File::Path::make_path($dir);
+        }
         open my $fh, ">", $xml or Carp::confess("write $xml: $!");
         print {$fh} qq{<?xml version="1.0"?><testsuites>};
         for my $r (@$results) {

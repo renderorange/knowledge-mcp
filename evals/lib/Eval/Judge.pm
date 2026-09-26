@@ -8,6 +8,9 @@ use POSIX ();
 use Try::Tiny ();
 
 my $_JUDGE_TIMEOUT_SEC = 120;
+my $_TRANSCRIPT_MAX_CHARS = 24000;
+my $_TRANSCRIPT_HEAD_CHARS = 8000;
+my $_TRANSCRIPT_TAIL_CHARS = 16000;
 
 # grade runs one judge call (a single opencode run with the fixed judge
 # prompt) against a scenario transcript. The caller passes the resolved
@@ -21,6 +24,9 @@ sub grade {
     }
     if (ref($sc->{judge}) ne "HASH") {
         Carp::confess("grade requires a judge block");
+    }
+    if (!defined $sc->{judge}{rubric} || "$sc->{judge}{rubric}" !~ /\S/) {
+        Carp::confess("grade requires a non-empty judge rubric");
     }
     if (ref($opts) ne "HASH") {
         Carp::confess("grade requires an opts hashref");
@@ -44,22 +50,29 @@ sub parse_response {
     if (!defined $text || "$text" !~ /\S/) {
         Carp::confess("empty judge response");
     }
-    my ($json) = "$text" =~ /(\{.*\})/s;
-    if (!defined $json) {
+    my $start = index("$text", "{");
+    if ($start < 0) {
         Carp::confess("no JSON in judge response: $text");
     }
     my $data;
     Try::Tiny::try {
-        $data = JSON::PP::decode_json($json);
+        my $decoder = JSON::PP->new;
+        $data = $decoder->incr_parse(substr("$text", $start));
     }
     Try::Tiny::catch {
         Carp::confess("judge response is not valid JSON: $_");
     };
+    if (!defined $data) {
+        Carp::confess("no JSON object in judge response: $text");
+    }
     if (ref($data) ne "HASH") {
         Carp::confess("judge response is not a JSON object");
     }
     if (!exists $data->{score}) {
         Carp::confess("judge response missing score");
+    }
+    if (ref($data->{score})) {
+        Carp::confess("judge response score is not an integer: " . JSON::PP::encode_json($data->{score}));
     }
     if ("$data->{score}" !~ /^-?\d+$/) {
         Carp::confess("judge response score is not an integer: $data->{score}");
@@ -87,12 +100,30 @@ sub _prompt {
         "Scale: $scale",
         q{Return ONLY JSON of the form {"score": <int>, "reason": "<short>"}.},
         "Transcript:",
-        (defined $transcript ? "$transcript" : "");
+        _clip_transcript($transcript);
+}
+
+# _clip_transcript bounds the transcript to head+tail with a marker so the
+# prompt argument stays well under the kernel's per-argument exec limit
+# (MAX_ARG_STRLEN is 128KiB on Linux). Char cap is 24000; worst-case UTF-8
+# is 4 bytes/char (~96KiB), leaving headroom for the prompt wrapper.
+sub _clip_transcript {
+    my ($transcript) = @_;
+    my $text = defined $transcript ? "$transcript" : "";
+    if (length($text) <= $_TRANSCRIPT_MAX_CHARS) {
+        return $text;
+    }
+    my $head = substr($text, 0, $_TRANSCRIPT_HEAD_CHARS);
+    my $tail = substr($text, length($text) - $_TRANSCRIPT_TAIL_CHARS);
+    return $head . "\n...[transcript truncated for judge prompt]...\n" . $tail;
 }
 
 # _run_judge spawns the judge as a child opencode run and captures its
 # stdout only — stderr is UI chrome (spike finding) and must not pollute
 # the parse. List-form exec, alarm-bounded, never shell interpolation.
+# Child gets its own process group so the timeout kill reaps descendants
+# too — a grandchild inheriting the pipe write end would otherwise wedge
+# the read past the alarm (same discipline as _spawn_opencode in run.pl).
 sub _run_judge {
     my ($model, $dir, $prompt) = @_;
     my $pid = open(my $fh, "-|");
@@ -100,6 +131,8 @@ sub _run_judge {
         Carp::confess("fork failed: $!");
     }
     if ($pid == 0) {
+        setpgrp(0, 0);
+        open(STDIN, "<", "/dev/null");
         open(STDERR, ">", "/dev/null");
         my @cmd = ("opencode", "run");
         if (defined $dir && "$dir" ne "") {
@@ -112,6 +145,7 @@ sub _run_judge {
     local $SIG{ALRM} = sub {
         $timed_out = 1;
         kill "KILL", $pid;
+        kill "KILL", -$pid;
     };
     alarm($_JUDGE_TIMEOUT_SEC);
     my $out = "";
