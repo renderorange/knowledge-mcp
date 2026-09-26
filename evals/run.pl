@@ -12,13 +12,16 @@ use File::Find ();
 use Eval::Sandbox;
 use Eval::Assert;
 
-my ($want_scenario, $want_tag, $xml_path, $mock);
+my ($want_scenario, $want_tag, $xml_path, $mock, $want_model);
 Getopt::Long::GetOptions(
     "scenario=s" => \$want_scenario,
     "tag=s"      => \$want_tag,
     "xml=s"      => \$xml_path,
     "mock"       => \$mock,
+    "model=s"    => \$want_model,
 ) or Carp::confess("bad options");
+
+my $model = _resolve_model($want_model, $ENV{KNM_MODEL});
 
 if (!$mock) {
     my $found = system("command -v opencode >/dev/null 2>&1");
@@ -63,6 +66,24 @@ report(\@results, $xml_path);
 my $failed = grep { $_->{failed} } @results;
 exit($failed ? 1 : 0);
 
+sub _resolve_model {
+    my ($flag, $env) = @_;
+    my $model = "";
+    if (defined $flag && "$flag" =~ /\S/) {
+        $model = "$flag";
+    }
+    elsif (defined $env && "$env" =~ /\S/) {
+        $model = "$env";
+    }
+    else {
+        $model = "mimo/mimo-v2.6-pro";
+    }
+    if ($model !~ m{^[^/]+/.+}) {
+        Carp::confess("model must be in provider/model form: $model");
+    }
+    return $model;
+}
+
 sub run_one {
     my ($sc, $bin, $mock) = @_;
     my $attempts = 1 + ($sc->{retry} || 0);
@@ -85,13 +106,14 @@ sub attempt {
     my ($sc, $bin) = @_;
     my $sb = Eval::Sandbox->build($sc, {
         bin          => $bin,
+        model        => $model,
         make_git     => 1,
         fixtures_dir => "$FindBin::Bin/fixtures",
     });
     if (!$sb->{provider_lifted}) {
         $sb->teardown();
-        Carp::confess("real-tier evals need the mimo provider block in the host opencode config " .
-            "(default ~/.config/opencode/opencode.jsonc)");
+        Carp::confess("real-tier evals need the $sb->{provider_key} provider block for model " .
+            "$sb->{model} in the host opencode config (default ~/.config/opencode/opencode.jsonc)");
     }
     local $ENV{HOME} = $sb->{home};
     local $ENV{OPENCODE_CONFIG} = "$sb->{home}/.config/opencode/opencode.jsonc";
@@ -160,6 +182,7 @@ sub mock_attempt {
     my $me = _load_mock_evidence($path);
     my $sb = Eval::Sandbox->build($sc, {
         bin          => $bin,
+        model        => $model,
         make_git     => 0,
         fixtures_dir => "$FindBin::Bin/fixtures",
     });
@@ -192,7 +215,7 @@ sub _spawn_opencode {
         open(STDERR, ">&", \*STDOUT);
         exec("opencode", "run",
             "--dir", $sb->{project},
-            "--model", "mimo/mimo-v2.6-pro",
+            "--model", $sb->{model},
             "--format", "default",
             $prompt,
         ) or POSIX::_exit(127);
