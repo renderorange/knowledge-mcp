@@ -6,6 +6,7 @@ use lib "$FindBin::Bin/../lib";
 use File::Spec ();
 use File::Temp ();
 use JSON::PP ();
+use Encode ();
 use Try::Tiny ();
 use Eval::Sandbox;
 
@@ -242,5 +243,36 @@ if (open my $mf, "<", "$sb_missing->{home}/.config/opencode/opencode.jsonc") {
 my $miss_doc = JSON::PP::decode_json($miss_raw);
 ok(!exists $miss_doc->{provider}, "no provider block invented when the requested provider is absent");
 $sb_missing->teardown();
+
+my @wide_warns;
+my $uni_content = "caf\x{e9} \x{2014} snowman \x{2603}\n";
+my $sb_uni;
+{
+    local $SIG{__WARN__} = sub { push @wide_warns, $_[0]; };
+    $sb_uni = Eval::Sandbox->build({
+        id          => "uni",
+        prompt      => "x",
+        timeout_sec => 5,
+        setup       => { files => [ { path => "uni.txt", content => $uni_content } ] },
+    }, {});
+    $sb_uni->write_file({ path => "sub/uni2.txt", content => $uni_content });
+}
+my $wide_count = grep { /Wide character/ } @wide_warns;
+is($wide_count, 0, "no wide-character warnings when writing UTF-8 content");
+my $uni_raw = "";
+if (open my $uf, "<:raw", "$sb_uni->{project}/uni.txt") {
+    local $/;
+    $uni_raw = <$uf> // "";
+    close $uf;
+}
+is($uni_raw, Encode::encode("UTF-8", $uni_content), "setup.files writes UTF-8 encoded bytes");
+my $uni2_raw = "";
+if (open my $u2, "<:raw", "$sb_uni->{project}/sub/uni2.txt") {
+    local $/;
+    $uni2_raw = <$u2> // "";
+    close $u2;
+}
+is($uni2_raw, Encode::encode("UTF-8", $uni_content), "write_file writes UTF-8 encoded bytes");
+$sb_uni->teardown();
 
 done_testing

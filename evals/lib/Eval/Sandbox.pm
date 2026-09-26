@@ -41,7 +41,7 @@ sub build {
     for my $f (@{ $sc->{setup}{files} || [] }) {
         my $p = _contained_file($sb{project}, $f->{path});
         File::Path::make_path(_dirname($p));
-        open my $fh, ">", $p or Carp::confess("write $p: $!");
+        open my $fh, ">:encoding(UTF-8)", $p or Carp::confess("write $p: $!");
         print {$fh} defined $f->{content} ? $f->{content} : "";
         close $fh;
     }
@@ -106,7 +106,7 @@ sub write_file {
     }
     my $p = _contained_file($self->{project}, $args->{path});
     File::Path::make_path(_dirname($p));
-    open my $fh, ">", $p or Carp::confess("write $p: $!");
+    open my $fh, ">:encoding(UTF-8)", $p or Carp::confess("write $p: $!");
     print {$fh} defined $args->{content} ? $args->{content} : "";
     close $fh;
     return;
