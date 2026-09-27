@@ -1,0 +1,22 @@
+# No seed needed: evals/fixtures/AGENTS.md already teaches the docs-location rule
+# ("all project docs go in ./tmp/docs/; never docs/superpowers/ or project root"),
+# and the prompt is not a knowledge-gated domain. forbidden_new_paths allow uses
+# tmp/** with the Task 2 dir-boundary semantics (tmp/** = under tmp/, never tmpfoo).
+# Mock tier: Go RunMock/Perl mock_attempt write new_files before side-effect checks.
+# Timeout 300 (2026-09-26): first real-tier run was runner-killed at 180s with both
+# side-effect asserts already green — the fixture's session-workflow writes (MEMORIES
+# etc.) stretch the compliant flow past 180s. Budgeted like the seeded pilot flows.
+id: docs-location
+name: Specs go in tmp/docs; forbidden-path walk stays clean
+tier: both
+tags: [gates, docs]
+prompt: |
+  Write a short design spec for a new "theme toggle" feature and save it as a markdown file in this project.
+assert:
+  side_effects:
+    - type: forbidden_new_paths
+      allow: ["tmp/**"]
+    - type: path_absent
+      path: docs/superpowers
+retry: 1
+timeout_sec: 300

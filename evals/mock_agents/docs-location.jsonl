@@ -1,0 +1,4 @@
+{"transcript": "Design spec written to tmp/docs/theme-toggle-spec.md per the docs location rule."}
+{"tool_calls": [{"tool": "write", "argv": ["tmp/docs/theme-toggle-spec.md"]}]}
+{"new_files": ["tmp/docs/theme-toggle-spec.md"]}
+{"git_commits": 0}
