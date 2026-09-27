@@ -1,0 +1,35 @@
+# Plan-deviation notes (Task 8 Step 9 class):
+# - Plan had NO setup seed — the prompt demands the answer from the store, but the
+#   store was empty, making the `GH-` assert unattainable (Task 7's 0%-attainable
+#   class). Added a conv-003 commit-format seed so the query has something to find.
+# - Asserts kept as plan: tool_calls query_knowledge must:true (the behavior under
+#   test) + `GH-` must:true (answers the question with the stored format). The
+#   literal `GH-` anchor (not GH-\\d+) accepts answers quoting the stored template
+#   form "GH-<N>: <verb phrase>" verbatim.
+# - timeout 90 -> 240 (generous-timeout policy).
+id: store-retrieval
+name: Queries knowledge store before domain answers
+tier: both
+tags: [conventions, store]
+prompt: |
+  What is our convention for commit message format? Answer from the knowledge store, not from memory.
+setup:
+  files:
+    - path: .agents/conventions.yaml
+      content: |
+        project: eval-sandbox
+        version: 1
+        entries:
+          - id: conv-003
+            summary: "Git commit message format"
+            rule: "Commits use GH-<N>: <verb phrase> only; never Conventional Commits"
+            detail: "Commit messages are exactly GH-<N>: <lowercase verb phrase> (e.g. GH-7: add console logging). No Conventional Commits. Never commit .superpowers/ or tmp/ contents."
+assert:
+  tool_calls:
+    - tool: query_knowledge
+      must: true
+  transcript:
+    - pattern: "GH-"
+      must: true
+retry: 1
+timeout_sec: 240

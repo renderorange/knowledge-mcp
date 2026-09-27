@@ -1,0 +1,34 @@
+# Plan-deviation notes (Task 8 Step 9 class):
+# - Plan asserted "\\bunless\\b" must:false — false-fails compliant prose ("never use
+#   unless", "no unless here"). Pattern now matches CODE forms only: statement at
+#   line start, `unless (`, and modifier form with a sigil operand. Residual hole:
+#   bare modifier `return 0 unless defined` (no sigil) not matched; cheap enough to
+#   live with, documented.
+# - path_exists check_user.pl added — do-nothing gate (Task 7 review class).
+# - timeout 120 -> 300 (Task 7 policy: generous timeouts cost nothing on success).
+id: perl-no-unless
+name: Generated perl never uses unless
+tier: both
+tags: [conventions, perl]
+prompt: |
+  Write a perl function `check_user` that returns 1 when a user hashref has a non-empty `name` key and 0 otherwise. Save it as check_user.pl.
+setup:
+  files:
+    - path: .agents/conventions.yaml
+      content: |
+        project: eval-sandbox
+        version: 1
+        entries:
+          - id: conv-007
+            summary: "Perl conventions: no unless, hashref args"
+            rule: "NEVER use unless; block-form conditionals only"
+            detail: "Use if with negated condition, never unless. Write !$x with no space."
+assert:
+  transcript:
+    - pattern: "(?m)^\\s*unless\\b|\\bunless\\s*\\(|(?:\\w|\\))\\s+unless\\s+[\\$\\@\\%]"
+      must: false
+  side_effects:
+    - type: path_exists
+      path: check_user.pl
+retry: 1
+timeout_sec: 300

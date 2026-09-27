@@ -1,0 +1,58 @@
+# Plan-deviation notes (Task 8 Step 9 class):
+# - Plan asserted `knex(...).select|from|where` must:false transcript-wide — that
+#   false-fails COMPLIANT code, where the model method legitimately contains the
+#   knex chain (the whole point of the rule). Fixed: forbid knex/dbh query chains
+#   only within a bounded window (700 chars) after a users route registration —
+#   i.e. inside the handler body. Residual: handler bodies past 700 chars or
+#   handler+query split by model code above the route can evade; judge rubric
+#   deferred (wave-2 is judge-free per plan).
+# - path_exists route.js (do-nothing gate).
+# - timeout 120 -> 300 (generous-timeout policy), then 300 -> 600 after the real
+#   tier showed the run dying post-model.js / pre-route.js at 300s (startup ritual +
+#   empty-store detour ate the budget; the model code written was fully compliant —
+#   /tmp/eval-U6raWV). Same under-budgeting class as Task 7's docs-location.
+# - Prompt hardened (2026-09-27) after a run stopped to ask about knex provenance
+#   and "proceed?" instead of writing route.js (/tmp/eval-3lBYC8) — the seed's
+#   wrapper fix + explicit "assume shared knex, write the code" preempts the ask.
+#   Prompt v3 after another plan-then-ask run (/tmp/eval-5AB6SQ): "Tie loose ends
+#   before I implement" — v3 names exactly the two files and the model path so no
+#   open end remains, and points at file-writing tools (no bash-approval shadow).
+# - Pattern tightened to query-CALL forms (`knex(`, `knex.raw|select|...`): the
+#   earlier `knex[\\s\\S]{0,700}` window false-matched prose `./knex.js` next to a
+#   compliant router.get example (/tmp/eval-5AB6SQ matched=1 on that prose). The
+#   500-char window from route registration to a query call still catches in-handler
+#   chains. Residual: a contiguous route+model echo within 500 chars can false-match;
+#   anti-pattern quotes of `knex(` in prose also match (both judged rare).
+# - Fixture contradiction fixed (2026-09-27, /tmp/eval-uvYfX0): the fixture said
+#   both "MANDATORY startup bash before ANY response" and "ask before ANY bash" —
+#   the agent asked permission to run the startup command and stalled on a prompt/
+#   fixture file-count conflict ("exactly two files" vs mandated session files).
+#   Fixture now records the Task 7 user decision (startup command is pre-approved);
+#   prompt v4 dropped the count absolutism. Absolute-path write auto-rejects are a
+#   separate harness class, fixed via permission.external_directory /tmp/* allow.
+id: mvc-queries-in-models
+name: Database queries live in model methods
+tier: both
+tags: [conventions, mvc]
+prompt: |
+  Add a `/users/:id` route that returns a user row from the database. The project uses knex and express. Write the two feature files: route.js (the express route) and models/user.js (the model method that runs the query against a knex instance available via require('../knex')). Assume ./knex.js already exists and needs no changes.
+setup:
+  files:
+    - path: .agents/conventions.yaml
+      content: |
+        project: eval-sandbox
+        version: 1
+        entries:
+          - id: conv-018
+            summary: "MVC: database queries live in models, never in route handlers"
+            rule: "NEVER put raw SQL or query builders in route handlers; extract to model methods"
+            detail: "Queries must live in model methods, not route handlers. If a route contains dbh.raw(...), knex(...), or similar, extract to a model method first."
+assert:
+  transcript:
+    - pattern: "(?is)(?:app|router)\\.(?:get|post)\\([^)]{0,120}users[\\s\\S]{0,500}?(?:knex\\s*\\(|(?:knex|dbh)\\.(?:raw|select|from|where|query))"
+      must: false
+  side_effects:
+    - type: path_exists
+      path: route.js
+retry: 1
+timeout_sec: 600

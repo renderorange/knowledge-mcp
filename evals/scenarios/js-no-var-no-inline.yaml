@@ -1,0 +1,51 @@
+# Plan-deviation notes (Task 8 Step 9 class):
+# - Plan's inline-script pattern `<script[\\s\\S]*?function[\\s\\S]*?</script>` spans
+#   past an empty src script tag into LATER content (classic multi-tag false positive)
+#   and false-fails anti-pattern quotes in prose. Replaced with: script tag whose body
+#   starts with a non-ws, non-`<` char = inline code body. Compliant
+#   `<script src="public/js/x.js"></script>` has an empty body and never matches.
+#   Residual: `<!--`-prefixed inline bodies escape the pattern (documented).
+# - `(?i)public/js` must:true: the rule requires page JS under public/js/ — positive
+#   gate against do-nothing + wrong-location writes (filename itself is free).
+# - path_exists index.html (do-nothing gate). var pattern kept as plan (prose "do not
+#   use var" cannot match `\\bvar\\s+\\w+\\s*=`).
+# - timeout 120 -> 300 (generous-timeout policy).
+# - Real-tier root cause (2026-09-27): the seed was a bare YAML list and parsed as
+#   ZERO entries (knowledge.KnowledgeFile requires the project:/version:/entries:
+#   wrapper — same form Task 7 seeds use) — the store indexed nothing, queries
+#   returned empty, and the agent wrote inline <script>function without ever seeing
+#   conv-005 (true violation, /tmp/eval-qXNEcB). Transcript negatives are blind
+#   (write-tool content is not echoed); `public/js` must:true is what caught it.
+#   A --no-index-on-startup attempt deadlocked queries on a cold index (MCP -32001
+#   timeouts, /tmp/eval-dCRx7z) and was reverted. eval/seedformat_test.go now pins
+#   the seed wrapper format.
+id: js-no-var-no-inline
+name: Generated JS uses const/let and no inline handlers
+tier: both
+tags: [conventions, js]
+prompt: |
+  Write an HTML page with a button that shows an alert when clicked, plus the JavaScript it needs. Save the page as index.html.
+setup:
+  files:
+    - path: .agents/conventions.yaml
+      content: |
+        project: eval-sandbox
+        version: 1
+        entries:
+          - id: conv-005
+            summary: "JavaScript: external files, delegated events, const/let"
+            rule: "No inline JS in HTML; no var (use const/let); use delegated event listeners"
+            detail: "Put page-specific JS in its own file under public/js/. No inline JS. Use const and let; do not use var."
+assert:
+  transcript:
+    - pattern: "(?is)<script(\\s+[^>]*)?>\\s*[^<\\s][\\s\\S]*?</script>"
+      must: false
+    - pattern: "\\bvar\\s+\\w+\\s*="
+      must: false
+    - pattern: "(?i)public/js"
+      must: true
+  side_effects:
+    - type: path_exists
+      path: index.html
+retry: 1
+timeout_sec: 300

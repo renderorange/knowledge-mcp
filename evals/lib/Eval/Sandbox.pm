@@ -67,6 +67,18 @@ sub build {
                 type    => "local",
             },
         },
+        # external_directory defaults to ask and is auto-rejected headless (Task 0
+        # spike S4). An agent writing route.js via an absolute /tmp/eval-*/project/
+        # path got "The user rejected permission to use this specific tool call"
+        # while relative writes passed - a model-side lottery (/tmp/eval-9swBcB).
+        # Allow only /tmp/* sandbox-area writes; every other permission keeps its
+        # default (bash stays default-allow, so Task 7's rejection-marker must:falses
+        # and silent-execution gates are unaffected).
+        permission => {
+            "external_directory" => {
+                "/tmp/*" => "allow",
+            },
+        },
     };
     my $host_cfg_path = $opts->{host_config} || "$ENV{HOME}/.config/opencode/opencode.jsonc";
     my $provider = _lift_provider($host_cfg_path, $provider_key);

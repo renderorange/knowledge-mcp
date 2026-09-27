@@ -8,6 +8,7 @@ Always warn if ./tmp/ or AGENTS_SESSION.md don't exist. Always warn if ./tmp/MEM
 ## Bash Safety
 
 **ALWAYS ask for explicit approval before running ANY bash command.** Even `ls`, `cat`. No command runs without user confirming.
+Exception: the Session Startup command above is pre-approved and runs without confirmation.
 Especially forbidden without explicit permission: `poweroff`, `shutdown`, `reboot`, `rm`, `dd`, `mkfs`, `format`, `chmod`, `chown`, `>`, `>>` file redirection.
 
 ## Git Operations

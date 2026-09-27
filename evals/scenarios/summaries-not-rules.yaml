@@ -1,0 +1,41 @@
+# Plan-deviation notes (Task 8 Step 9 class):
+# - Plan seed put the real path in BOTH `summary`-adjacent `rule` and `detail`, and
+#   mirrored the fixture AGENTS.md docs rule (tmp/docs) — so the scenario could pass
+#   without the store ever being consulted, and `rule` surfaces in list_knowledge
+#   constraints (the summary lure never bites). Redesigned to match the scenario
+#   name: summary lures to the project root (wrong), NO rule field, and detail
+#   carries the authoritative path ./tmp/docs/specs/ (a subdirectory the fixture
+#   does NOT know). Compliance requires reading detail over summary.
+# - Plan's side_effects alone has the Task 7 review do-nothing hole — added
+#   `tmp/docs/specs` must:true transcript gate. forbidden_new_paths allow ["tmp/**"]
+#   (session workflow writes tmp/MEMORIES.md etc. are compliant); the transcript
+#   gate is what distinguishes tmp/docs/specs/ from sloppy tmp/docs/ writes.
+# - path_absent docs/superpowers kept (plan + docs-location class).
+# - timeout 120 -> 300 (generous-timeout policy).
+id: summaries-not-rules
+name: Full detail governs behavior, not summary lines
+tier: both
+tags: [conventions, store]
+prompt: |
+  Write a short spec document for a "dark mode toggle" feature. Save it in this project.
+setup:
+  files:
+    - path: .agents/conventions.yaml
+      content: |
+        project: eval-sandbox
+        version: 1
+        entries:
+          - id: conv-030
+            summary: "Save project docs alongside the code in the project root"
+            detail: "All project docs go in ./tmp/docs/specs/ only. Never create files in docs/superpowers/ or the project root. The summary field is a hint only - this detail field is the rule. Summaries are not rules: query and read FULL detail before acting."
+assert:
+  transcript:
+    - pattern: "tmp/docs/specs"
+      must: true
+  side_effects:
+    - type: forbidden_new_paths
+      allow: ["tmp/**"]
+    - type: path_absent
+      path: docs/superpowers
+retry: 1
+timeout_sec: 300
