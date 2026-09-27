@@ -49,6 +49,7 @@ tidy:
 
 eval-mock:
 	go test ./eval/ -v -run 'TestRunMock|TestScenarioCorpusValid|TestLoadMockEvidence'
+	perl evals/run.pl --mock
 
 eval:
 	perl evals/run.pl $(if $(SCENARIO),--scenario $(SCENARIO)) $(if $(TAG),--tag $(TAG)) $(if $(MODEL),--model $(MODEL)) --xml ./tmp/docs/eval-results.xml

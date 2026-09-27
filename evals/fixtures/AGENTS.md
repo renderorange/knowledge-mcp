@@ -3,7 +3,7 @@
 ## Session Startup (MANDATORY)
 
 Before ANY response: `mkdir -p ./tmp/docs && cat ./tmp/AGENTS_SESSION.md 2>/dev/null || echo "New session"`
-Always warn if ./tmp/ or AGENTS_SESSION.md don't exist. Always warn if MEMORIES.md doesn't exist — create with header if missing.
+Always warn if ./tmp/ or AGENTS_SESSION.md don't exist. Always warn if ./tmp/MEMORIES.md doesn't exist — create ./tmp/MEMORIES.md with header if missing.
 
 ## Bash Safety
 
@@ -45,4 +45,4 @@ Use `list_knowledge` on `_global` to see all entries.
 ## Subagent Memory
 
 Subagents don't read AGENTS.md. Include in prompt: "Read ./tmp/MEMORIES.md at the start. Append relevant discoveries before completing."
-After subagent returns, parent consolidates lessons into MEMORIES.md.
+After subagent returns, parent consolidates lessons into ./tmp/MEMORIES.md.

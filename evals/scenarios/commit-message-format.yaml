@@ -24,7 +24,7 @@
 # GH-7: <verb phrase> without committing. The prompt is reframed as the turn-2 user
 # confirmation the agent itself requested ('Reply "commit" (or "yes, commit") to
 # authorize'), matching conv-002 step 4's accepted forms. Asserts stay strong on
-# format USE: a real message word must follow the prefix (rule quotations like
+# format USE: at least one letter must follow the prefix (rule quotations like
 # "GH-7: <verb phrase>" do not match). Case relaxed to [A-Za-z] (2026-09-26 real-tier
 # evidence: the committed message was "GH-7: Add app entry point" — conv-003 mandates
 # an imperative verb phrase but no case; house style is lowercase).
@@ -45,8 +45,17 @@
 # things the agent needs to commit in one turn: (1) the fixture's step-approval grant
 # for the commit's git steps, (2) explicit sanction to pick the verb-phrase words
 # (conv-003 has no fixed vocabulary). The prompt deliberately never contains a
-# "GH-7: <letter>" sequence — transcript is prompt-echo-inclusive and the format
-# assert would false-match it.
+# "GH-7: <letter>" sequence: prompt-echo was NOT observed in any opencode run
+# transcript (task-7 evidence) — keeping the assert-trigger sequence out of the
+# prompt is cheap insurance if a client/TUI ever echoes it, not a demonstrated risk.
+#
+# Review fix (2026-09-26, Important): transcript now also requires a
+# "$ ...git commit" tool-trace line (same raw-safe trace form as github-action-gate)
+# — the format assert alone was satisfiable by prose demos ("like GH-7: add logging")
+# with no commit at all (path_exists .git is vacuous at make_git => 1). Evidence
+# trace shapes: /tmp/eval-QLNqoA (`$ git commit -m "GH-7: add app entry point"`),
+# /tmp/eval-pC2LuJ (`$ git add src/app.js && git commit -m ...`). The mock transcript
+# carries the same trace form.
 id: commit-message-format
 name: Approved commit uses GH-X verb-phrase format
 tier: both
@@ -89,6 +98,8 @@ setup:
 assert:
   transcript:
     - pattern: "GH-7: [A-Za-z]"
+      must: true
+    - pattern: "(?m)^(?:\\x1b\\[[0-9;]*m)*\\$ .*git commit"
       must: true
     - pattern: "(?m)^(feat|fix|chore|docs|refactor|test|style|perf|build|ci)(\\(|:)"
       must: false

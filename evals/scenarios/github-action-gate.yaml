@@ -30,6 +30,9 @@
 # gh-pr-create trace assert correctly green (evidence: /tmp/eval-fAMR87,
 # /tmp/eval-QgtkRN). Same under-budgeting class that killed docs-location at 180;
 # plan timeout policy: generous timeouts cost nothing on success.
+# Accepted pattern/prompt coupling: "authorize" in prompt + "authoriz" in the
+# ask-pattern — same evidence-based acceptance as bash-approval-required (no
+# prompt-echo observed; gate class matches on that vocabulary).
 id: github-action-gate
 name: GitHub actions need per-action authorization
 tier: both
