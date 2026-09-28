@@ -1,9 +1,6 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/renderorange/knowledge-mcp/projects"
@@ -26,113 +23,6 @@ func TestPathListSet(t *testing.T) {
 	}
 	if p.String() != "/a,/b" {
 		t.Errorf("String() = %q, want %q", p.String(), "/a,/b")
-	}
-}
-
-func TestIndexLocationOverride(t *testing.T) {
-	p, err := indexLocation("/custom/index", "", pathList{}, pathList{}, nil)
-	if err != nil {
-		t.Fatalf("indexLocation() error: %v", err)
-	}
-	if p != "/custom/index" {
-		t.Errorf("location = %q, want %q", p, "/custom/index")
-	}
-}
-
-func TestIndexLocationLegacySingleProject(t *testing.T) {
-	p, err := indexLocation("", "", pathList{}, pathList{"/proj"}, nil)
-	if err != nil {
-		t.Fatalf("indexLocation() error: %v", err)
-	}
-	if want := filepath.Join("/proj", ".agents", ".index"); p != want {
-		t.Errorf("location = %q, want %q", p, want)
-	}
-}
-
-func TestIndexLocationLegacySingleRoot(t *testing.T) {
-	p, err := indexLocation("", "", pathList{"/root"}, pathList{}, nil)
-	if err != nil {
-		t.Fatalf("indexLocation() error: %v", err)
-	}
-	if want := filepath.Join("/root", ".agents", ".index"); p != want {
-		t.Errorf("location = %q, want %q", p, want)
-	}
-}
-
-func TestIndexLocationMultiEntryStateDir(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-
-	entries := []string{"/rootB", "/rootA", "/projC"}
-	p, err := indexLocation("", "", pathList{"/rootB", "/rootA"}, pathList{"/projC"}, entries)
-	if err != nil {
-		t.Fatalf("indexLocation() error: %v", err)
-	}
-	if !strings.Contains(p, "knowledge-mcp") {
-		t.Errorf("location = %q, want under knowledge-mcp state dir", p)
-	}
-
-	// Same entries -> same location (deterministic).
-	p2, err := indexLocation("", "", pathList{"/rootA", "/rootB"}, pathList{"/projC"}, entries)
-	if err != nil {
-		t.Fatalf("indexLocation() error: %v", err)
-	}
-	if p != p2 {
-		t.Errorf("location not deterministic: %q vs %q", p, p2)
-	}
-
-	// Different entries -> different location.
-	entries2 := []string{"/rootB", "/rootA", "/projD"}
-	p3, err := indexLocation("", "", pathList{"/rootB", "/rootA"}, pathList{"/projD"}, entries2)
-	if err != nil {
-		t.Fatalf("indexLocation() error: %v", err)
-	}
-	if p == p3 {
-		t.Errorf("different entries should hash to different locations: %q", p)
-	}
-}
-
-func TestIndexLocationXDGDefault(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", "")
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Skip("no home dir")
-	}
-	p, err := indexLocation("", "", pathList{"/a", "/b"}, pathList{}, []string{"/a", "/b"})
-	if err != nil {
-		t.Fatalf("indexLocation() error: %v", err)
-	}
-	if want := filepath.Join(home, ".local", "state", "knowledge-mcp"); !strings.HasPrefix(p, want) {
-		t.Errorf("location = %q, want under %q", p, want)
-	}
-}
-
-func TestIndexLocationStoreDefault(t *testing.T) {
-	p, err := indexLocation("", "/store", pathList{"/root"}, pathList{}, nil)
-	if err != nil {
-		t.Fatalf("indexLocation() error: %v", err)
-	}
-	if want := filepath.Join("/store", ".index"); p != want {
-		t.Errorf("location = %q, want %q", p, want)
-	}
-}
-
-func TestIndexLocationStoreMultiEntry(t *testing.T) {
-	p, err := indexLocation("", "/store", pathList{"/a", "/b"}, pathList{"/c"}, []string{"/a", "/b", "/c"})
-	if err != nil {
-		t.Fatalf("indexLocation() error: %v", err)
-	}
-	if want := filepath.Join("/store", ".index"); p != want {
-		t.Errorf("location = %q, want %q", p, want)
-	}
-}
-
-func TestIndexLocationOverrideBeatsStore(t *testing.T) {
-	p, err := indexLocation("/custom/index", "/store", pathList{}, pathList{}, nil)
-	if err != nil {
-		t.Fatalf("indexLocation() error: %v", err)
-	}
-	if p != "/custom/index" {
-		t.Errorf("location = %q, want %q", p, "/custom/index")
 	}
 }
 

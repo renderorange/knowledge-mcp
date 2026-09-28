@@ -2,15 +2,12 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -112,7 +109,7 @@ func main() {
 	dbg.Debugf("startup", "resolve.done", "entries", len(resolver.Entries()), "warnings", len(warnings), "dur", time.Since(tResolve).Round(time.Millisecond))
 
 	tIndex := time.Now()
-	indexBasePath, err := indexLocation(*indexOverride, *storeDir, roots, projs, resolver.Entries())
+	indexBasePath, err := search.Location(*indexOverride, *storeDir, []string(roots), []string(projs), resolver.Entries())
 	if err != nil {
 		log.Fatalf("determine index location: %v", err)
 	}
@@ -200,33 +197,4 @@ func buildHandlers(res *projects.Resolver, idx *search.Index, orgMode bool) map[
 		h[tools.ToolListProjects] = tools.ListProjectsHandler(res)
 	}
 	return h
-}
-
-// indexLocation picks the bleve index path: explicit override, a --store
-// default (<store>/.index), legacy per-config locations for single-entry
-// configs, or a hashed XDG state dir for multi-entry configs.
-func indexLocation(override, store string, roots, projs pathList, canonicalEntries []string) (string, error) {
-	if override != "" {
-		return filepath.Abs(override)
-	}
-	if store != "" {
-		return filepath.Join(store, ".index"), nil
-	}
-	if len(roots)+len(projs) == 1 {
-		single := roots
-		if len(single) == 0 {
-			single = projs
-		}
-		return filepath.Join(single[0], ".agents", ".index"), nil
-	}
-	base := os.Getenv("XDG_STATE_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("resolve state dir: %w", err)
-		}
-		base = filepath.Join(home, ".local", "state")
-	}
-	sum := sha256.Sum256([]byte(strings.Join(canonicalEntries, "\x00")))
-	return filepath.Join(base, "knowledge-mcp", hex.EncodeToString(sum[:8])+".index"), nil
 }
