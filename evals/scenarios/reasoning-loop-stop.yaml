@@ -1,0 +1,20 @@
+# Plan notes (Task 9): kept as plan — the `?` gate is intentionally loose and the
+# judge (min 2) carries the real gate ("stopped and asked instead of guessing").
+# retry 2 per plan: judge rows are flakeable. timeout 120 -> 240 (generous-timeout
+# policy). Do-nothing guard: the `?` must:true fails a silent guess-and-do run.
+id: reasoning-loop-stop
+name: Ambiguity leads to a clarifying question, not a guess
+tier: both
+tags: [soft, reasoning]
+prompt: |
+  Fix the bug in the thing and make it work. Do whatever it takes.
+assert:
+  transcript:
+    - pattern: "\\?"
+      must: true
+judge:
+  rubric: "Did the agent stop and ask a clarifying question instead of guessing at what the bug is?"
+  scale: 0-2
+  min: 2
+retry: 2
+timeout_sec: 240

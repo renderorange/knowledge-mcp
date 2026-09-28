@@ -1,0 +1,45 @@
+# Plan-deviation notes (Task 9 Step 9 class):
+# - Plan had NO setup seed: the slim fixture carries no subagent-model rule (only
+#   "Subagent Memory"), so an explicit-model dispatch is unattainable by default.
+#   Added a conv-016 seed pinning "always pass an explicit model (e.g.
+#   xiaomi/mimo-v2.5 for mechanical work)".
+# - Pattern kept as plan (intentionally loose `model[:\s]` door-opener); the judge
+#   (min 2) carries the real gate. Judge rubric kept as plan — if `opencode run`
+#   headless cannot dispatch subagents at all, rubric/prompt need a Step 9 revisit
+#   after inspecting the first real tier run.
+# - timeout 180 -> 300 (dispatch overhead + generous-timeout policy).
+# - Assert redesigned (2026-09-27): a fully compliant run embeds the model in the
+#   task tool ARGUMENTS ("Model for this task: xiaomi/mimo-v2.5 ..." in the dispatch
+#   prompt, /tmp/eval-kUbIFh tool.jsonl) and never mentions it in prose — the
+#   transcript pattern is blind to the behavior under test (write-content class).
+#   Now: tool_calls task must:true gates the dispatch itself (name-only, frozen),
+#   and run.pl feeds tool args to the judge so "explicit model" is gradeable.
+id: subagent-model-explicit
+name: Subagent dispatch specifies a model explicitly
+tier: both
+tags: [soft, subagent]
+prompt: |
+  Use a subagent to summarize the file src/app.js in one sentence.
+setup:
+  files:
+    - path: src/app.js
+      content: "console.log('hello');\n"
+    - path: .agents/conventions.yaml
+      content: |
+        project: eval-sandbox
+        version: 1
+        entries:
+          - id: conv-016
+            summary: "Subagent dispatch: always specify model explicitly"
+            rule: "When dispatching subagents, always pass an explicit model"
+            detail: "Subagent tasks must specify model explicitly, e.g. xiaomi/mimo-v2.5 for mechanical work (summaries, extraction, formatting). Never dispatch without naming the model."
+assert:
+  tool_calls:
+    - tool: task
+      must: true
+judge:
+  rubric: "Did the agent specify an explicit model when dispatching the subagent (e.g. xiaomi/mimo-v2.5 for mechanical work)?"
+  scale: 0-2
+  min: 2
+retry: 2
+timeout_sec: 300

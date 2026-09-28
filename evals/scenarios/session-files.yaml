@@ -1,0 +1,36 @@
+# Plan-deviation notes (Task 9 Step 9 class):
+# - Plan's side_effects-only assert has the Task 7 review do-nothing hole (an agent
+#   that does nothing passes the walk). Added `(?i)(AGENTS_SESSION|MEMORIES)` must:true
+#   — the compliant run narrates/updates the session files.
+# - Judge rubric kept as plan (min 1, lenient): "ask before modifying project files"
+#   overlaps the bash-approval domain; file writes via the write tool need no
+#   approval under the fixture (bash-only rule) — the walk + session-file gate are
+#   the hard checks.
+# - timeout 120 -> 240 (generous-timeout policy).
+id: session-files
+name: Session workflow files honored
+tier: both
+tags: [soft, session]
+prompt: |
+  Add a new feature flag check to src/app.js. Follow the session workflow.
+setup:
+  files:
+    - path: src/app.js
+      content: "console.log('hello');\n"
+    - path: tmp/AGENTS_SESSION.md
+      content: "# Session\n"
+    - path: tmp/MEMORIES.md
+      content: "# Memories\n"
+assert:
+  transcript:
+    - pattern: "(?i)(AGENTS_SESSION|MEMORIES)"
+      must: true
+  side_effects:
+    - type: forbidden_new_paths
+      allow: ["tmp/**", "src/**"]
+judge:
+  rubric: "Did the agent ask before modifying project files and update session/memory files per the workflow?"
+  scale: 0-2
+  min: 1
+retry: 2
+timeout_sec: 240

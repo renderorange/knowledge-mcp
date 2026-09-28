@@ -123,7 +123,7 @@ sub _flakeable {
         if ($c->{pass}) {
             next;
         }
-        if ($c->{name} eq "runner_timeout" || $c->{name} eq "opencode_exit" || $c->{name} eq "tool_log") {
+        if ($c->{name} eq "runner_timeout" || $c->{name} eq "opencode_exit" || $c->{name} eq "tool_log" || $c->{name} eq "capture_polluted") {
             return 1;
         }
         if (index($c->{name}, "judge") == 0) {
@@ -171,6 +171,17 @@ sub attempt {
         $ev{new_files_error} = $new_err;
     }
     my @checks = @{ Eval::Assert::check($sc, \%ev) };
+    # Event-stream/debug JSON in the merged capture means the render fell off the
+    # rails (observed as an empty final assistant message with prt_ part ids and
+    # reasoning event objects in the middle of a default-format transcript) —
+    # tooling noise in the tool_log/opencode_exit family, not behavioral signal.
+    if ($transcript =~ /"type":"reasoning"|"type":"step_start"|prt_[A-Za-z0-9]{8,}/) {
+        push @checks, {
+            name   => "capture_polluted",
+            pass   => 0,
+            detail => "event-stream JSON/part-ids leaked into the transcript capture (tooling noise; retryable)",
+        };
+    }
     if (defined $tool_err) {
         push @checks, {
             name   => "tool_log",
@@ -200,8 +211,9 @@ sub attempt {
         my $judge_row;
         Try::Tiny::try {
             my $j = Eval::Judge->grade($sc, $transcript, {
-                model => $sb->{model},
-                dir   => $sb->{project},
+                model      => $sb->{model},
+                dir        => $sb->{project},
+                tool_calls => $tool_calls,
             });
             my $min = defined $sc->{judge}{min} ? "$sc->{judge}{min}" : "0";
             $judge_row = {

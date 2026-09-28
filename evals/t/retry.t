@@ -72,6 +72,9 @@ if ($is_judge) {
     }
     exit 0;
 }
+if ((defined $ENV{FAKE_POLLUTE} ? $ENV{FAKE_POLLUTE} : "") ne "") {
+    print "{\"type\":\"reasoning\",\"text\":\"noise\"}\n";
+}
 print "fake opencode finished\n";
 my $exit = defined $ENV{FAKE_EXIT} ? 0 + $ENV{FAKE_EXIT} : 0;
 exit $exit;
@@ -104,6 +107,7 @@ sub _run {
     local $ENV{FAKE_COUNT} = $count;
     local $ENV{FAKE_EXIT} = defined $args->{exit} ? "$args->{exit}" : "";
     local $ENV{FAKE_JUDGE} = defined $args->{judge} ? "$args->{judge}" : "";
+    local $ENV{FAKE_POLLUTE} = defined $args->{pollute} ? "$args->{pollute}" : "";
     my $out = "";
     my $exit = 0;
     my @cmd = ($^X, $run_pl, "--scenario", $args->{id});
@@ -148,6 +152,19 @@ timeout_sec: 30
 ',
     "flake-exit" => 'id: flake-exit
 name: opencode exit is flakeable and retries
+tier: both
+tags: [probe]
+prompt: |
+  probe
+assert:
+  transcript:
+    - pattern: "fake opencode finished"
+      must: true
+retry: 1
+timeout_sec: 30
+',
+    "flake-pollute" => 'id: flake-pollute
+name: capture pollution is flakeable and retries
 tier: both
 tags: [probe]
 prompt: |
@@ -223,6 +240,11 @@ isnt($exit2, 0, "flake failure exits non-zero");
 like($out2, qr/opencode_exit/, "flake failure surfaces the opencode_exit row");
 is($c2->{main}, 2, "opencode_exit failure retries the attempt");
 is($c2->{judge}, 0, "judge never runs when the run itself failed");
+
+my ($exit7, $out7, $c7) = _run({ id => "flake-pollute", pollute => 1 });
+isnt($exit7, 0, "capture pollution exits non-zero");
+like($out7, qr/capture_polluted/, "capture pollution surfaces the capture_polluted row");
+is($c7->{main}, 2, "capture_polluted failure retries the attempt");
 
 my ($exit3, $out3, $c3) = _run({ id => "judge-garbage", judge => "garbage" });
 isnt($exit3, 0, "judge crash exits non-zero");

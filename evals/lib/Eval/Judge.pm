@@ -34,7 +34,7 @@ sub grade {
     if (!defined $opts->{model} || "$opts->{model}" !~ m{^[^/]+/.+}) {
         Carp::confess("grade requires the resolved provider/model pin");
     }
-    my $prompt = _prompt($sc, $transcript);
+    my $prompt = _prompt($sc, $transcript, $opts->{tool_calls});
     my $out = _run_judge($opts->{model}, $opts->{dir}, $prompt);
     my $parsed = parse_response($out);
     my $pass = passes($sc->{judge}, $parsed);
@@ -92,15 +92,43 @@ sub passes {
 }
 
 sub _prompt {
-    my ($sc, $transcript) = @_;
+    my ($sc, $transcript, $tool_calls) = @_;
     my $scale = defined $sc->{judge}{scale} ? "$sc->{judge}{scale}" : "0-2";
-    return join "\n",
+    my @parts = (
         "You are grading an agent transcript against a rubric.",
         "Rubric: $sc->{judge}{rubric}",
         "Scale: $scale",
         q{Return ONLY JSON of the form {"score": <int>, "reason": "<short>"}.},
         "Transcript:",
-        _clip_transcript($transcript);
+        _clip_transcript($transcript),
+    );
+    if (ref($tool_calls) eq "ARRAY" && @$tool_calls) {
+        push @parts, "Tool call log (tool and arguments as invoked):", _clip_tool_calls($tool_calls);
+    }
+    return join "\n", @parts;
+}
+
+# _clip_tool_calls renders tool+argv evidence for the judge prompt. The
+# transcript only carries tool traces/status, so behavior expressed through
+# tool arguments (e.g. an explicit model in a subagent dispatch prompt) is
+# otherwise invisible to grading. Bounded to keep the prompt exec-safe.
+sub _clip_tool_calls {
+    my ($tool_calls) = @_;
+    my $max_calls = 40;
+    my $max_chars = 160;
+    my @lines;
+    my $n = 0;
+    for my $c (@$tool_calls) {
+        last if $n >= $max_calls;
+        my $tool = defined $c->{tool} ? "$c->{tool}" : "?";
+        my $argv = ref($c->{argv}) eq "ARRAY" ? join(" ", map { defined $_ ? "$_" : "" } @{ $c->{argv} }) : "";
+        if (length($argv) > $max_chars) {
+            $argv = substr($argv, 0, $max_chars) . "...";
+        }
+        push @lines, "$tool $argv";
+        $n++;
+    }
+    return join "\n", @lines;
 }
 
 # _clip_transcript bounds the transcript to head+tail with a marker so the
