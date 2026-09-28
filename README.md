@@ -194,7 +194,7 @@ flags as server mode and exits non-zero when it finds a problem (unresolved
 project, stale or missing index, blocked queries):
 
 ```bash
-knowledge-mcp --root /path/to/org debug
+knowledge-mcp debug --root /path/to/org
 ```
 
 The report has three sections — Resolution (projects/stores resolved),
