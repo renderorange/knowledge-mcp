@@ -58,6 +58,53 @@ func TestWrapHandlersLogsErrors(t *testing.T) {
 	}
 }
 
+func TestWrapHandlersLogsResultErrors(t *testing.T) {
+	var buf bytes.Buffer
+	l := New(&buf)
+	l.now = func() time.Time { return time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC) }
+	h := map[string]server.ToolHandlerFunc{
+		"query_knowledge": func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return mcp.NewToolResultError("some failure"), nil
+		},
+	}
+	wrapped := WrapHandlers(h, l)
+	_, _ = wrapped["query_knowledge"](context.Background(), mcp.CallToolRequest{})
+	out := buf.String()
+	if !strings.Contains(out, "tool.done name=query_knowledge") {
+		t.Errorf("missing tool.done: %q", out)
+	}
+	if !strings.Contains(out, "ok=false") || !strings.Contains(out, "resultErr=true") {
+		t.Errorf("missing result-error fields: %q", out)
+	}
+	if strings.Contains(out, "ok=true") {
+		t.Errorf("logged ok=true for result error: %q", out)
+	}
+	if !strings.Contains(out, "some failure") {
+		t.Errorf("missing reason: %q", out)
+	}
+}
+
+func TestWrapHandlersTruncatesResultReason(t *testing.T) {
+	var buf bytes.Buffer
+	l := New(&buf)
+	l.now = func() time.Time { return time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC) }
+	long := strings.Repeat("a", 250)
+	h := map[string]server.ToolHandlerFunc{
+		"write_knowledge": func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return mcp.NewToolResultError(long), nil
+		},
+	}
+	wrapped := WrapHandlers(h, l)
+	_, _ = wrapped["write_knowledge"](context.Background(), mcp.CallToolRequest{})
+	out := buf.String()
+	if strings.Contains(out, long) {
+		t.Errorf("untruncated reason: %q", out)
+	}
+	if !strings.Contains(out, "… [250 chars]") {
+		t.Errorf("missing truncation marker: %q", out)
+	}
+}
+
 func TestWrapHandlersNilLoggerUnchanged(t *testing.T) {
 	h := map[string]server.ToolHandlerFunc{
 		"f": func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

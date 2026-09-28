@@ -22,13 +22,26 @@ func WrapHandlers(h map[string]server.ToolHandlerFunc, l *Logger) map[string]ser
 			start := time.Now()
 			res, err := fn(ctx, req)
 			dur := time.Since(start).Round(time.Millisecond)
+			ok := err == nil && (res == nil || !res.IsError)
 			if err != nil {
-				l.Debugf("tool", "tool.done", "name", name, "dur", dur, "ok", false, "err", err.Error())
+				l.Debugf("tool", "tool.done", "name", name, "dur", dur, "ok", ok, "err", err.Error())
+			} else if res != nil && res.IsError {
+				l.Debugf("tool", "tool.done", "name", name, "dur", dur, "ok", ok, "resultErr", true, "reason", truncate(resultText(res), 200))
 			} else {
-				l.Debugf("tool", "tool.done", "name", name, "dur", dur, "ok", true)
+				l.Debugf("tool", "tool.done", "name", name, "dur", dur, "ok", ok)
 			}
 			return res, err
 		}
 	}
 	return out
+}
+
+// resultText returns the first text item of a tool result, or "".
+func resultText(res *mcp.CallToolResult) string {
+	for _, c := range res.Content {
+		if tc, ok := c.(mcp.TextContent); ok {
+			return tc.Text
+		}
+	}
+	return ""
 }
