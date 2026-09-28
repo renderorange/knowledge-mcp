@@ -6,17 +6,20 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/renderorange/knowledge-mcp/hook"
 	"github.com/renderorange/knowledge-mcp/install"
+	"github.com/renderorange/knowledge-mcp/internal/diag"
 	"github.com/renderorange/knowledge-mcp/projects"
 	"github.com/renderorange/knowledge-mcp/search"
 	"github.com/renderorange/knowledge-mcp/tools"
@@ -66,6 +69,8 @@ func main() {
 	indexOverride := flag.String("index", "", "Override the search index location")
 	storeDir := flag.String("store", "", "Central directory for all knowledge stores; in-tree .agents/ is ignored when set")
 	noIndexOnStartup := flag.Bool("no-index-on-startup", false, "Skip indexing on startup; index may be stale or empty")
+	debugMode := flag.Bool("debug", false, "Log diagnostics to stderr (and --log-file if set); lands in the client's log")
+	logFile := flag.String("log-file", "", "Tee debug lines to this file (implies --debug)")
 	flag.Var(&roots, "root", "Org root whose immediate children are projects (repeatable)")
 	flag.Var(&projs, "project", "Single project root (repeatable)")
 	flag.Parse()
@@ -75,11 +80,27 @@ func main() {
 		os.Exit(0)
 	}
 
+	var dbg *diag.Logger
+	if *debugMode || *logFile != "" {
+		out := io.Writer(os.Stderr)
+		if *logFile != "" {
+			f, lerr := os.OpenFile(*logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			if lerr != nil {
+				log.Printf("warning: open --log-file %s: %v (continuing with stderr only)", *logFile, lerr)
+			} else {
+				defer f.Close()
+				out = io.MultiWriter(os.Stderr, f)
+			}
+		}
+		dbg = diag.New(out)
+	}
+
 	if len(roots) == 0 && len(projs) == 0 && *globalPath == "" {
 		fmt.Fprintln(os.Stderr, "error: at least one --project, --root, or --global is required")
 		os.Exit(1)
 	}
 
+	tResolve := time.Now()
 	resolver, warnings, err := projects.BuildWithStore([]string(roots), []string(projs), *globalPath, *storeDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -88,7 +109,9 @@ func main() {
 	for _, w := range warnings {
 		log.Printf("warning: %s", w)
 	}
+	dbg.Debugf("startup", "resolve.done", "entries", len(resolver.Entries()), "warnings", len(warnings), "dur", time.Since(tResolve).Round(time.Millisecond))
 
+	tIndex := time.Now()
 	indexBasePath, err := indexLocation(*indexOverride, *storeDir, roots, projs, resolver.Entries())
 	if err != nil {
 		log.Fatalf("determine index location: %v", err)
@@ -96,6 +119,7 @@ func main() {
 
 	idx := search.NewLazyIndex(indexBasePath, resolver.KnownNames())
 	defer idx.Close()
+	dbg.Debugf("startup", "index.open", "path", indexBasePath, "dur", time.Since(tIndex).Round(time.Millisecond))
 
 	// Open the index in the background: a second instance whose index is
 	// locked by another knowledge-mcp (single-writer) must not delay the
@@ -104,8 +128,11 @@ func main() {
 	var afterOpen func()
 	if !*noIndexOnStartup {
 		afterOpen = func() {
+			dbg.Debugf("startup", "index.kick", "names", len(resolver.KnownNames()))
 			idx.IndexAll(resolver)
 		}
+	} else {
+		dbg.Debugf("startup", "index.kick", "skipped", "no-index-on-startup")
 	}
 	idx.OpenBackground(afterOpen)
 
@@ -117,7 +144,7 @@ func main() {
 	)
 
 	// Register tools
-	registerTools(s, buildHandlers(resolver, idx, len(roots) > 0))
+	registerTools(s, diag.WrapHandlers(buildHandlers(resolver, idx, len(roots) > 0), dbg))
 
 	// Graceful shutdown on SIGTERM/SIGINT
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -126,6 +153,7 @@ func main() {
 	go func() {
 		<-ctx.Done()
 		log.Println("shutting down...")
+		dbg.Debugf("startup", "shutdown", "signal", "sigterm|sigint")
 		idx.Close()
 		os.Exit(0)
 	}()
