@@ -53,6 +53,8 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "debug":
+			os.Exit(diag.RunDoctor(os.Args[2:], version))
 		case "hook-augment":
 			runHook()
 			return

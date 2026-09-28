@@ -419,6 +419,11 @@ func (i *Index) WaitReady() {
 	<-i.ready
 }
 
+// DocCount reports the number of documents currently in the index.
+func (i *Index) DocCount() (uint64, error) {
+	return i.index.DocCount()
+}
+
 // IndexAll indexes all projects known to the resolver in the background.
 // It closes the ready channel when complete.
 func (i *Index) IndexAll(res *projects.Resolver) {
