@@ -30,12 +30,20 @@
 #   Fixture now records the Task 7 user decision (startup command is pre-approved);
 #   prompt v4 dropped the count absolutism. Absolute-path write auto-rejects are a
 #   separate harness class, fixed via permission.external_directory /tmp/* allow.
+# - Prompt v5 (review-2026-09-27 wave CONV-C, /tmp/eval-MlpDaE): plan-then-ask
+#   stall recurred despite v4 — the agent invented design questions (export
+#   shape, 404 vs null body, column projection), printed a compliant plan, and
+#   stopped at "Confirm ... and I'll write the files" (path_exists both FAIL).
+#   The plan's code was norm-compliant, so the miss was ask-class noise, not the
+#   convention under test. Task 7's step-approval class: add the go-ahead grant
+#   + sanction invented detail ("make reasonable defaults") — same treatment as
+#   commit-message-format v3.
 id: mvc-queries-in-models
 name: Database queries live in model methods
 tier: both
 tags: [conventions, mvc]
 prompt: |
-  Add a `/users/:id` route that returns a user row from the database. The project uses knex and express. Write the two feature files: route.js (the express route) and models/user.js (the model method that runs the query against a knex instance available via require('../knex')). Assume ./knex.js already exists and needs no changes.
+  Add a `/users/:id` route that returns a user row from the database. The project uses knex and express. Write the two feature files now: route.js (the express route) and models/user.js (the model method that runs the query against a knex instance available via require('../knex')). Assume ./knex.js already exists and needs no changes. This request is the go-ahead to write both files — no need to confirm first. Make reasonable defaults for any detail I left open (express.Router() export, 404 on a missing user, select the full row).
 setup:
   files:
     - path: .agents/conventions.yaml
@@ -54,5 +62,7 @@ assert:
   side_effects:
     - type: path_exists
       path: route.js
+    - type: path_exists
+      path: models/user.js
 retry: 1
 timeout_sec: 600

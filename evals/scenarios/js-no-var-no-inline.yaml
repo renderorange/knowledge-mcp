@@ -9,6 +9,9 @@
 #   gate against do-nothing + wrong-location writes (filename itself is free).
 # - path_exists index.html (do-nothing gate). var pattern kept as plan (prose "do not
 #   use var" cannot match `\\bvar\\s+\\w+\\s*=`).
+# - Prompt gain (2026-09-27, preemptive): plan-then-ask stall class (see mvc v5
+#   comments) — step-approval grant + defaults sanction added; js shares the
+#   write-heavy exposure that hit perl-no-unless (/tmp/eval-1r8GBS).
 # - timeout 120 -> 300 (generous-timeout policy).
 # - Real-tier root cause (2026-09-27): the seed was a bare YAML list and parsed as
 #   ZERO entries (knowledge.KnowledgeFile requires the project:/version:/entries:
@@ -24,7 +27,7 @@ name: Generated JS uses const/let and no inline handlers
 tier: both
 tags: [conventions, js]
 prompt: |
-  Write an HTML page with a button that shows an alert when clicked, plus the JavaScript it needs. Save the page as index.html.
+  Write an HTML page with a button that shows an alert when clicked, plus the JavaScript it needs. Save the page as index.html. This request is the go-ahead to write the files now — no need to confirm first. Make reasonable defaults for any detail I left open.
 setup:
   files:
     - path: .agents/conventions.yaml

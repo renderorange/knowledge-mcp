@@ -48,7 +48,7 @@ tidy:
 	go mod tidy
 
 eval-mock:
-	go test ./eval/ -v -run 'TestRunMock|TestScenarioCorpusValid|TestLoadMockEvidence'
+	go test ./eval/ -v -run 'TestRunMock|TestScenarioCorpusValid|TestLoadMockEvidence|TestSeedKnowledgeFilesParse|TestCorpusPatternsCompile'
 	perl evals/run.pl --mock
 
 eval:

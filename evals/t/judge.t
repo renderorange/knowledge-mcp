@@ -85,6 +85,25 @@ like($clipped_prompt, qr/transcript truncated for judge prompt/, "oversized tran
 like($clipped_prompt, qr/line 1 of the transcript/, "clipped transcript keeps the head");
 like($clipped_prompt, qr/line 5000 of the transcript/, "clipped transcript keeps the tail");
 
+my $long_argv = join " ", "Read ./tmp/MEMORIES.md and act.", (("filler word") x 14),
+    "Model for this task: xiaomi/mimo-v2.5. Dispatch the general subagent.";
+my $tool_block = Eval::Judge::_clip_tool_calls([
+    { tool => "task", argv => [$long_argv] },
+    { tool => "bash", argv => ["ls -la"] },
+]);
+like($tool_block, qr/\[model-pin: xiaomi\/mimo-v2\.5\]/,
+    "model pin past the argv clip stays visible");
+like($tool_block, qr/task .*\.\.\./, "oversized argv is clipped with a marker");
+like($tool_block, qr/bash ls -la/, "short argv renders untruncated");
+my $clip_prompt = Eval::Judge::_prompt(
+    { judge => { rubric => "r", scale => "0-2", min => 2 } },
+    "t",
+    [ { tool => "task", argv => [$long_argv] } ],
+);
+like($clip_prompt, qr/<<<TRANSCRIPT/, "transcript is wrapped as delimited untrusted data");
+like($clip_prompt, qr/<<<TOOL_LOG/, "tool log is wrapped as delimited untrusted data");
+like($clip_prompt, qr/untrusted data/, "judge is told the payload is untrusted");
+
 my $rubric_died = 0;
 Try::Tiny::try {
     Eval::Judge::grade(

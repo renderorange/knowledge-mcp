@@ -7,17 +7,29 @@
 #   carries the authoritative path ./tmp/docs/specs/ (a subdirectory the fixture
 #   does NOT know). Compliance requires reading detail over summary.
 # - Plan's side_effects alone has the Task 7 review do-nothing hole — added
-#   `tmp/docs/specs` must:true transcript gate. forbidden_new_paths allow ["tmp/**"]
+#   `tmp/docs/specs` must:true transcript gate + (review 2026-09-27) the hard
+#   path-shape gate `path_exists tmp/docs/specs` — the transcript gate alone is
+#   mention-satisfied (prose/tool trace could name the path while writing
+#   tmp/docs/x.md). forbidden_new_paths allow ["tmp/**", ".agents/**"]
+#   (session workflow writes tmp/MEMORIES.md etc. are compliant; .agents/** is
+#   store-admin — a fixture-sanctioned init_knowledge call creates
+#   .agents/{_meta,subsystems,decisions}.yaml and is not a docs violation,
+#   wave CONV-D run 3, /tmp/eval-hQ_oFu). The transcript
 #   (session workflow writes tmp/MEMORIES.md etc. are compliant); the transcript
 #   gate is what distinguishes tmp/docs/specs/ from sloppy tmp/docs/ writes.
 # - path_absent docs/superpowers kept (plan + docs-location class).
+# - Prompt v2 (review wave CONV-D, /tmp/eval-AP5hw9): plan-then-ask stall — the
+#   agent resolved the detail-only path correctly (norm under test passed) but
+#   stopped at "Approve to proceed with the writes?" without writing. Same class
+#   as mvc v5 (/tmp/eval-MlpDaE): add the Task 7 step-approval grant; the path
+#   itself stays unspecified (resolving it IS the behavior under test).
 # - timeout 120 -> 300 (generous-timeout policy).
 id: summaries-not-rules
 name: Full detail governs behavior, not summary lines
 tier: both
 tags: [conventions, store]
 prompt: |
-  Write a short spec document for a "dark mode toggle" feature. Save it in this project.
+  Write a short spec document for a "dark mode toggle" feature. Save it in this project. This request is the go-ahead to write the file now — no need to confirm first. Use reasonable defaults for any content detail I left open.
 setup:
   files:
     - path: .agents/conventions.yaml
@@ -34,8 +46,10 @@ assert:
       must: true
   side_effects:
     - type: forbidden_new_paths
-      allow: ["tmp/**"]
+      allow: ["tmp/**", ".agents/**"]
     - type: path_absent
       path: docs/superpowers
+    - type: path_exists
+      path: tmp/docs/specs
 retry: 1
 timeout_sec: 300

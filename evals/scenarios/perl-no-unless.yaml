@@ -5,13 +5,16 @@
 #   bare modifier `return 0 unless defined` (no sigil) not matched; cheap enough to
 #   live with, documented.
 # - path_exists check_user.pl added — do-nothing gate (Task 7 review class).
+# - Prompt gain (review wave CONV-E, /tmp/eval-1r8GBS): plan-then-ask stall class
+#   (see mvc v5 / summaries-not-rules v2 comments) — step-approval grant +
+#   defaults sanction added.
 # - timeout 120 -> 300 (Task 7 policy: generous timeouts cost nothing on success).
 id: perl-no-unless
 name: Generated perl never uses unless
 tier: both
 tags: [conventions, perl]
 prompt: |
-  Write a perl function `check_user` that returns 1 when a user hashref has a non-empty `name` key and 0 otherwise. Save it as check_user.pl.
+  Write a perl function `check_user` that returns 1 when a user hashref has a non-empty `name` key and 0 otherwise. Save it as check_user.pl. This request is the go-ahead to write the file now — no need to confirm first. Make reasonable defaults for any edge case I left open.
 setup:
   files:
     - path: .agents/conventions.yaml
