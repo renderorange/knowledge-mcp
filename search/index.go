@@ -447,6 +447,7 @@ func (i *Index) indexProjectKnowledge(agentsDir, projectName string) {
 		catPath := knowledge.CategoryFilePath(agentsDir, cat)
 		kf, err := knowledge.Load(catPath)
 		if err != nil {
+			log.Printf("warning: failed to load knowledge file %s: %v", catPath, err)
 			continue
 		}
 		for _, entry := range kf.Entries {
