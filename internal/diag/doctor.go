@@ -118,9 +118,8 @@ func RunDoctor(args []string, version string) int {
 	idx := search.NewLazyIndex(indexPath, resolver.KnownNames())
 
 	var indexDone chan struct{}
-	queryOK := false
 	defer func() {
-		if indexDone == nil || queryOK {
+		if indexDone == nil {
 			idx.Close()
 			return
 		}
@@ -128,20 +127,11 @@ func RunDoctor(args []string, version string) int {
 		case <-indexDone:
 			idx.Close()
 		default:
+			// IndexAll may still be in flight; leaking is safe, process exits.
 		}
 	}()
 
-	var afterOpen func()
-	trailPrinted := make(chan struct{})
-	if !*noIndexOnStartup {
-		indexDone = make(chan struct{})
-		afterOpen = func() {
-			<-trailPrinted
-			fmt.Fprintln(out, "index.kick done")
-			go func() { idx.IndexAll(resolver); close(indexDone) }()
-		}
-	}
-	idx.OpenBackground(afterOpen)
+	idx.OpenBackground(nil)
 
 	err = idx.WaitOpen(*timeout)
 	indexDur := time.Since(tIndex).Round(time.Millisecond)
@@ -151,7 +141,6 @@ func RunDoctor(args []string, version string) int {
 		} else {
 			add("fail", "index.open", err.Error())
 		}
-		close(trailPrinted)
 		printFindings(out, findings)
 		return 1
 	}
@@ -161,8 +150,11 @@ func RunDoctor(args []string, version string) int {
 	fmt.Fprintf(out, "index.open path=%s source=%s dur=%s\n", indexPath, indexSource, indexDur)
 	if *noIndexOnStartup {
 		fmt.Fprintln(out, "index.kick skipped=no-index-on-startup")
+	} else {
+		fmt.Fprintln(out, "index.kick done")
+		indexDone = make(chan struct{})
+		go func() { idx.IndexAll(resolver); close(indexDone) }()
 	}
-	close(trailPrinted)
 
 	tQuery := time.Now()
 	qerr := watchdog(*timeout, func() error {
@@ -183,7 +175,6 @@ func RunDoctor(args []string, version string) int {
 		add("fail", "query.error", qerr.Error())
 		fmt.Fprintf(out, "self-query fail query.error err=%v\n", qerr)
 	default:
-		queryOK = true
 		fmt.Fprintf(out, "self-query ok dur=%s\n", queryDur)
 	}
 

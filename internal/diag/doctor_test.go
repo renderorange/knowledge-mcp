@@ -112,6 +112,48 @@ func TestRunDoctorEmptyEntriesStaysFresh(t *testing.T) {
 	}
 }
 
+func TestRunDoctorWarmIndex(t *testing.T) {
+	name := "warmproj"
+	proj := filepath.Join(t.TempDir(), name)
+	agents := filepath.Join(proj, ".agents")
+	if err := os.MkdirAll(agents, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agents, "conventions.yaml"), []byte("project: test\nversion: 1\nentries:\n    - id: conv-001\n      summary: test entry\n      detail: body\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := search.NewIndex(filepath.Join(agents, ".index"), []string{name})
+	if err != nil {
+		t.Fatalf("pre-populate warm index: %v", err)
+	}
+	if err := idx.Add(name+"/conv-001", search.SearchDocument{Summary: "test entry", Detail: "body", Category: "conventions", Project: name}); err != nil {
+		t.Fatalf("pre-populate add: %v", err)
+	}
+	if err := idx.Close(); err != nil {
+		t.Fatalf("pre-populate close: %v", err)
+	}
+	out := captureStdout(t, func() {
+		code := RunDoctor([]string{"--project", proj, "--timeout", "10s"}, "test")
+		if code != 0 {
+			t.Errorf("RunDoctor() = %d, want 0", code)
+		}
+	})
+	trail := strings.Index(out, "== Startup trail ==")
+	kick := strings.Index(out, "index.kick done")
+	query := strings.Index(out, "self-query")
+	env := strings.Index(out, "== Environment ==")
+	findings := strings.Index(out, "findings:")
+	if trail < 0 || kick < 0 || query < 0 || env < 0 || findings < 0 {
+		t.Fatalf("missing markers in output:\n%s", out)
+	}
+	if !(trail < kick && kick < query && kick < env && kick < findings) {
+		t.Errorf("index.kick done out of order (trail=%d kick=%d query=%d env=%d findings=%d):\n%s", trail, kick, query, env, findings, out)
+	}
+	if strings.Contains(out, "index.stale") || strings.Contains(out, "STALE") {
+		t.Errorf("unexpected stale finding on warm store:\n%s", out)
+	}
+}
+
 func TestRunDoctorIndexLocked(t *testing.T) {
 	name := "lockproj"
 	proj := filepath.Join(t.TempDir(), name)
