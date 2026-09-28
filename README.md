@@ -55,6 +55,12 @@ Check the version:
 ./knowledge-mcp --version
 ```
 
+## Behavior evals
+
+`make eval-mock` runs the deterministic mock tier (no API key); `make eval` runs the
+full real-tier agent-behavior suite (needs a model provider). Scenarios live in
+`evals/scenarios/*.yaml` with mock contracts in `evals/mock_agents/*.jsonl`.
+
 ## Modes
 
 ### Single-project
