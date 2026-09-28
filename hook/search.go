@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/renderorange/knowledge-mcp/internal/diag"
 	"github.com/renderorange/knowledge-mcp/knowledge"
 	"github.com/renderorange/knowledge-mcp/projects"
 )
@@ -19,13 +20,16 @@ type Hit struct {
 
 // Search scans, in precedence order: the project store (proj), the org
 // knowledge files (org), then the global store. Never the bleve index.
-func Search(res *projects.Resolver, proj, org *projects.Ref, pattern string, limit int) []Hit {
+// When log is non-nil, a hook.scan summary line is emitted.
+func Search(res *projects.Resolver, proj, org *projects.Ref, pattern string, limit int, log *diag.Logger) []Hit {
 	type cand struct {
 		addr, id, summary string
 		score             int
 	}
 	var cands []cand
+	files, sections := 0, 0
 	addEntry := func(addr, id, summary, detail, rule string) {
+		sections++
 		cands = append(cands, cand{addr, id, summary, scoreEntry(pattern, summary, detail, rule)})
 	}
 	if proj != nil && proj.Kind == projects.KindProject {
@@ -34,6 +38,7 @@ func Search(res *projects.Resolver, proj, org *projects.Ref, pattern string, lim
 			if err != nil {
 				continue
 			}
+			files++
 			for _, e := range kf.Entries {
 				addEntry(proj.Address, e.ID, e.Summary, e.Detail, e.Rule)
 			}
@@ -45,6 +50,7 @@ func Search(res *projects.Resolver, proj, org *projects.Ref, pattern string, lim
 			if err != nil {
 				continue
 			}
+			files++
 			for _, sec := range knowledge.SplitSections(string(data)) {
 				addEntry(org.Address, "org-"+file+"::"+sec[0], file+": "+sec[0], sec[1], "")
 			}
@@ -56,6 +62,7 @@ func Search(res *projects.Resolver, proj, org *projects.Ref, pattern string, lim
 			if err != nil {
 				continue
 			}
+			files++
 			for _, e := range kf.Entries {
 				addEntry(gref.Address, e.ID, e.Summary, e.Detail, e.Rule)
 			}
@@ -73,6 +80,7 @@ func Search(res *projects.Resolver, proj, org *projects.Ref, pattern string, lim
 		}
 		hits = append(hits, Hit{Address: c.addr, ID: c.id, Summary: truncate(c.summary, 90)})
 	}
+	log.Debugf("hook", "hook.scan", "files", files, "sections", sections, "matched", len(hits))
 	return hits
 }
 

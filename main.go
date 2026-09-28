@@ -166,7 +166,7 @@ func main() {
 
 // runHook executes hook-augment against the recorded install config.
 func runHook() {
-	if err := hook.Run(os.Stdin, os.Stdout); err != nil {
+	if err := hook.Run(os.Stdin, os.Stdout, diag.FromEnv(os.Stderr)); err != nil {
 		if os.Getenv("KNM_LOG_LEVEL") != "" {
 			fmt.Fprintf(os.Stderr, "hook-augment: %v\n", err)
 		}

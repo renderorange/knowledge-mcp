@@ -37,6 +37,9 @@ func FromEnv(out io.Writer) *Logger {
 	return New(out)
 }
 
+// SetNow overrides the clock (tests only).
+func (l *Logger) SetNow(f func() time.Time) { l.now = f }
+
 // Debugf logs one debug line. Nil receivers are no-ops.
 func (l *Logger) Debugf(component, msg string, kv ...any) {
 	if l == nil {

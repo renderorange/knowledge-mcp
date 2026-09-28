@@ -40,7 +40,7 @@ func TestSearchProjectHits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hits := Search(res, lookupRef(t, res, proj), nil, "tmp directory", 3)
+	hits := Search(res, lookupRef(t, res, proj), nil, "tmp directory", 3, nil)
 	if len(hits) != 1 {
 		t.Fatalf("len(hits) = %d, want 1 (%+v)", len(hits), hits)
 	}
@@ -59,7 +59,7 @@ func TestSearchWholePatternSubstring(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hits := Search(res, lookupRef(t, res, proj), nil, "sessioncompress", 3)
+	hits := Search(res, lookupRef(t, res, proj), nil, "sessioncompress", 3, nil)
 	if len(hits) != 1 || hits[0].ID != "dec-001" {
 		t.Fatalf("hits = %+v", hits)
 	}
@@ -87,7 +87,7 @@ func TestSearchIncludesOrgAndGlobal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hits := Search(res, lookupRef(t, res, proj), orgRef(t, res), "compression", 5)
+	hits := Search(res, lookupRef(t, res, proj), orgRef(t, res), "compression", 5, nil)
 	var addresses []string
 	for _, h := range hits {
 		addresses = append(addresses, h.Address)
@@ -129,7 +129,7 @@ func TestSearchRankingAndLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hits := Search(res, lookupRef(t, res, proj), nil, "zilch", 2)
+	hits := Search(res, lookupRef(t, res, proj), nil, "zilch", 2, nil)
 	if len(hits) != 2 {
 		t.Fatalf("len(hits) = %d, want 2", len(hits))
 	}

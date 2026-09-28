@@ -15,7 +15,7 @@ import (
 func TestWrapHandlersLogsStartAndDone(t *testing.T) {
 	var buf bytes.Buffer
 	l := New(&buf)
-	l.now = func() time.Time { return time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC) }
+	l.SetNow(func() time.Time { return time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC) })
 	h := map[string]server.ToolHandlerFunc{
 		"write_knowledge": func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			return &mcp.CallToolResult{}, nil
@@ -44,7 +44,7 @@ func TestWrapHandlersLogsStartAndDone(t *testing.T) {
 func TestWrapHandlersLogsErrors(t *testing.T) {
 	var buf bytes.Buffer
 	l := New(&buf)
-	l.now = func() time.Time { return time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC) }
+	l.SetNow(func() time.Time { return time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC) })
 	h := map[string]server.ToolHandlerFunc{
 		"query_knowledge": func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			return nil, errors.New("nope")
@@ -61,7 +61,7 @@ func TestWrapHandlersLogsErrors(t *testing.T) {
 func TestWrapHandlersLogsResultErrors(t *testing.T) {
 	var buf bytes.Buffer
 	l := New(&buf)
-	l.now = func() time.Time { return time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC) }
+	l.SetNow(func() time.Time { return time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC) })
 	h := map[string]server.ToolHandlerFunc{
 		"query_knowledge": func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			return mcp.NewToolResultError("some failure"), nil
@@ -87,7 +87,7 @@ func TestWrapHandlersLogsResultErrors(t *testing.T) {
 func TestWrapHandlersTruncatesResultReason(t *testing.T) {
 	var buf bytes.Buffer
 	l := New(&buf)
-	l.now = func() time.Time { return time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC) }
+	l.SetNow(func() time.Time { return time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC) })
 	long := strings.Repeat("a", 250)
 	h := map[string]server.ToolHandlerFunc{
 		"write_knowledge": func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

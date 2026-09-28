@@ -16,7 +16,7 @@ func TestNilLoggerIsNoop(t *testing.T) {
 func TestDebugfFormat(t *testing.T) {
 	var buf bytes.Buffer
 	l := New(&buf)
-	l.now = func() time.Time { return time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC) }
+	l.SetNow(func() time.Time { return time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC) })
 	l.Debugf("tool", "tool.start", "name", "write_knowledge", "ok", true)
 	got := buf.String()
 	want := "2026-09-27T12:00:00Z DEBUG tool tool.start name=write_knowledge ok=true\n"
@@ -28,7 +28,7 @@ func TestDebugfFormat(t *testing.T) {
 func TestDebugfQuotesValuesWithSpaces(t *testing.T) {
 	var buf bytes.Buffer
 	l := New(&buf)
-	l.now = func() time.Time { return time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC) }
+	l.SetNow(func() time.Time { return time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC) })
 	l.Debugf("hook", "hook.skip", "err", "boom town")
 	if !strings.Contains(buf.String(), `err="boom town"`) {
 		t.Errorf("got %q, want quoted value", buf.String())
