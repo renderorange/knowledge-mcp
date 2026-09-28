@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/renderorange/knowledge-mcp/search"
 )
 
 func TestWatchdogBlocked(t *testing.T) {
@@ -83,6 +85,79 @@ func TestRunDoctorSanitizesNothingBodies(t *testing.T) {
 	})
 	if strings.Contains(out, "MEGASECRET") {
 		t.Errorf("body leaked into doctor report:\n%s", out)
+	}
+}
+
+func TestRunDoctorEmptyEntriesStaysFresh(t *testing.T) {
+	name := "freshproj"
+	proj := filepath.Join(t.TempDir(), name)
+	agents := filepath.Join(proj, ".agents")
+	if err := os.MkdirAll(agents, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agents, "conventions.yaml"), []byte("project: test\nversion: 1\nentries: []\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() {
+		code := RunDoctor([]string{"--project", proj, "--timeout", "10s"}, "test")
+		if code != 0 {
+			t.Errorf("RunDoctor() = %d, want 0", code)
+		}
+	})
+	if !strings.Contains(out, "index freshness: fresh") {
+		t.Errorf("missing fresh line in output:\n%s", out)
+	}
+	if strings.Contains(out, "index.stale") || strings.Contains(out, "STALE") {
+		t.Errorf("unexpected stale finding on empty store:\n%s", out)
+	}
+}
+
+func TestRunDoctorIndexLocked(t *testing.T) {
+	name := "lockproj"
+	proj := filepath.Join(t.TempDir(), name)
+	agents := filepath.Join(proj, ".agents")
+	if err := os.MkdirAll(agents, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agents, "conventions.yaml"), []byte("project: test\nversion: 1\nentries:\n    - id: conv-001\n      summary: test entry\n      detail: body\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	holder, err := search.NewIndex(filepath.Join(agents, ".index"), []string{name})
+	if err != nil {
+		t.Fatalf("hold index lock: %v", err)
+	}
+	t.Cleanup(func() { holder.Close() })
+	out := captureStdout(t, func() {
+		code := RunDoctor([]string{"--project", proj, "--timeout", "500ms"}, "test")
+		if code != 1 {
+			t.Errorf("RunDoctor() = %d, want 1", code)
+		}
+	})
+	if !strings.Contains(out, "fail") || !strings.Contains(out, "index.locked") {
+		t.Errorf("missing fail index.locked finding:\n%s", out)
+	}
+}
+
+func TestRunDoctorNoIndexOnStartupWarnsQueryBlocked(t *testing.T) {
+	name := "warnproj"
+	proj := filepath.Join(t.TempDir(), name)
+	agents := filepath.Join(proj, ".agents")
+	if err := os.MkdirAll(agents, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agents, "conventions.yaml"), []byte("project: test\nversion: 1\nentries: []\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() {
+		code := RunDoctor([]string{"--project", proj, "--no-index-on-startup", "--timeout", "300ms"}, "test")
+		if code != 0 {
+			t.Errorf("RunDoctor() = %d, want 0", code)
+		}
+	})
+	for _, want := range []string{"warn query.blocked reason=no-index-on-startup", "findings:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in output:\n%s", want, out)
+		}
 	}
 }
 

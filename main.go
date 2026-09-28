@@ -118,7 +118,6 @@ func main() {
 
 	idx := search.NewLazyIndex(indexBasePath, resolver.KnownNames())
 	defer idx.Close()
-	dbg.Debugf("startup", "index.open", "path", indexBasePath, "dur", time.Since(tIndex).Round(time.Millisecond))
 
 	// Open the index in the background: a second instance whose index is
 	// locked by another knowledge-mcp (single-writer) must not delay the
@@ -127,11 +126,15 @@ func main() {
 	var afterOpen func()
 	if !*noIndexOnStartup {
 		afterOpen = func() {
+			dbg.Debugf("startup", "index.open", "path", indexBasePath, "dur", time.Since(tIndex).Round(time.Millisecond))
 			dbg.Debugf("startup", "index.kick", "names", len(resolver.KnownNames()))
 			idx.IndexAll(resolver)
 		}
 	} else {
 		dbg.Debugf("startup", "index.kick", "skipped", "no-index-on-startup")
+		afterOpen = func() {
+			dbg.Debugf("startup", "index.open", "path", indexBasePath, "dur", time.Since(tIndex).Round(time.Millisecond))
+		}
 	}
 	idx.OpenBackground(afterOpen)
 

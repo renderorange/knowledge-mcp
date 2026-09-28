@@ -115,25 +115,54 @@ func RunDoctor(args []string, version string) int {
 	} else if len(roots)+len(projs) == 1 {
 		indexSource = "single config"
 	}
-	idx, err := search.NewIndex(indexPath, resolver.KnownNames())
+	idx := search.NewLazyIndex(indexPath, resolver.KnownNames())
+
+	var indexDone chan struct{}
+	queryOK := false
+	defer func() {
+		if indexDone == nil || queryOK {
+			idx.Close()
+			return
+		}
+		select {
+		case <-indexDone:
+			idx.Close()
+		default:
+		}
+	}()
+
+	var afterOpen func()
+	trailPrinted := make(chan struct{})
+	if !*noIndexOnStartup {
+		indexDone = make(chan struct{})
+		afterOpen = func() {
+			<-trailPrinted
+			fmt.Fprintln(out, "index.kick done")
+			go func() { idx.IndexAll(resolver); close(indexDone) }()
+		}
+	}
+	idx.OpenBackground(afterOpen)
+
+	err = idx.WaitOpen(*timeout)
 	indexDur := time.Since(tIndex).Round(time.Millisecond)
 	if err != nil {
-		add("fail", "index.open", err.Error())
+		if errors.Is(err, search.ErrIndexLocked) {
+			add("fail", "index.locked", "another knowledge-mcp instance may hold the single-writer index lock")
+		} else {
+			add("fail", "index.open", err.Error())
+		}
+		close(trailPrinted)
 		printFindings(out, findings)
 		return 1
 	}
-	defer idx.Close()
 
 	fmt.Fprintln(out, "\n== Startup trail ==")
 	fmt.Fprintf(out, "resolve.done dur=%s\n", resolveDur)
 	fmt.Fprintf(out, "index.open path=%s source=%s dur=%s\n", indexPath, indexSource, indexDur)
-
-	if !*noIndexOnStartup {
-		go idx.IndexAll(resolver)
-		fmt.Fprintln(out, "index.kick done")
-	} else {
+	if *noIndexOnStartup {
 		fmt.Fprintln(out, "index.kick skipped=no-index-on-startup")
 	}
+	close(trailPrinted)
 
 	tQuery := time.Now()
 	qerr := watchdog(*timeout, func() error {
@@ -154,6 +183,7 @@ func RunDoctor(args []string, version string) int {
 		add("fail", "query.error", qerr.Error())
 		fmt.Fprintf(out, "self-query fail query.error err=%v\n", qerr)
 	default:
+		queryOK = true
 		fmt.Fprintf(out, "self-query ok dur=%s\n", queryDur)
 	}
 
@@ -232,13 +262,15 @@ func storeDirsFor(res *projects.Resolver) []string {
 	return dirs
 }
 
-// freshIndex reports whether the index was written after the newest store
-// file. Both sides are max-mtime over the respective trees.
+// freshIndex reports whether the index was written after the newest
+// knowledge source file. Both sides are max-mtime over the respective
+// trees; the store side counts source files only (*.yaml, *.md) so index
+// artifacts inside the same tree never self-flag stale.
 func freshIndex(indexPath string, storeDirs []string) bool {
 	indexM := treeMTime(indexPath)
 	storeM := time.Time{}
 	for _, d := range storeDirs {
-		if m := treeMTime(d); m.After(storeM) {
+		if m := knowledgeMTime(d); m.After(storeM) {
 			storeM = m
 		}
 	}
@@ -246,6 +278,26 @@ func freshIndex(indexPath string, storeDirs []string) bool {
 		return true
 	}
 	return !indexM.Before(storeM)
+}
+
+func knowledgeMTime(root string) time.Time {
+	var newest time.Time
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if ext := filepath.Ext(d.Name()); ext != ".yaml" && ext != ".md" {
+			return nil
+		}
+		if info, ierr := d.Info(); ierr == nil && info.ModTime().After(newest) {
+			newest = info.ModTime()
+		}
+		return nil
+	})
+	return newest
 }
 
 func treeMTime(root string) time.Time {
