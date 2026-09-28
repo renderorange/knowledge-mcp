@@ -94,15 +94,20 @@ func main() {
 		log.Fatalf("determine index location: %v", err)
 	}
 
-	idx, err := search.NewIndex(indexBasePath, resolver.KnownNames())
-	if err != nil {
-		log.Fatalf("init search index: %v", err)
-	}
+	idx := search.NewLazyIndex(indexBasePath, resolver.KnownNames())
 	defer idx.Close()
 
+	// Open the index in the background: a second instance whose index is
+	// locked by another knowledge-mcp (single-writer) must not delay the
+	// MCP protocol. Tool calls degrade to a clear error until the lock
+	// frees, after which the pending open completes on its own.
+	var afterOpen func()
 	if !*noIndexOnStartup {
-		go idx.IndexAll(resolver)
+		afterOpen = func() {
+			idx.IndexAll(resolver)
+		}
 	}
+	idx.OpenBackground(afterOpen)
 
 	// Create MCP server
 	s := server.NewMCPServer(
