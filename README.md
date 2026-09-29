@@ -55,6 +55,12 @@ Check the version:
 ./knowledge-mcp --version
 ```
 
+## Behavior evals
+
+`make eval-mock` runs the deterministic mock tier (no API key); `make eval` runs the
+full real-tier agent-behavior suite (needs a model provider). Scenarios live in
+`evals/scenarios/*.yaml` with mock contracts in `evals/mock_agents/*.jsonl`.
+
 ## Modes
 
 ### Single-project
@@ -181,6 +187,28 @@ immediately with stale or empty index data; queries block until indexing complet
 if no stale data is available. Useful for large knowledge stores where startup
 indexing would delay server readiness.
 
+### Debugging
+
+`knowledge-mcp debug` runs a one-shot startup diagnosis against the same
+flags as server mode and exits non-zero when it finds a problem (unresolved
+project, stale or missing index, blocked queries):
+
+```bash
+knowledge-mcp debug --root /path/to/org
+```
+
+The report has three sections — Resolution (projects/stores resolved),
+Startup trail (phase timings and a watchdog-bounded index self-query that
+flags the cold-index query block), and Environment (version, index
+location/source, doc count, freshness, install record) — followed by
+`ok`/`warn`/`fail` findings.
+
+For live diagnostics, run the server with `--debug` (optionally
+`--log-file <path>` to tee). Lines go to stderr, which MCP clients such as
+opencode forward into their own logs. Tool calls are logged with sanitized
+arguments — entry bodies are replaced by sizes and never written. Set
+`KNM_DEBUG=1` to get the same for the Grep/Glob `hook-augment` plugin hook.
+
 ## MCP Tools
 
 | Tool | Description |
@@ -203,17 +231,25 @@ Entries are stored in `<project>/.agents/<category>.yaml`:
 - `decisions.yaml` — why choices were made
 - `_meta.yaml` — project metadata
 
+Category files use a `project:`/`version:`/`entries:` wrapper — a bare YAML
+list parses as zero entries. `list_knowledge` marks entries merged from a
+shared global store with a `(global)` suffix so they are never mistaken for
+the project's own entries.
+
 ### Rules / Constraints
 
 Entries can include an optional `rule` field — an imperative statement of what's forbidden or required (e.g. `"Never create files outside ./tmp"`). `list_knowledge` surfaces entries with rules in a separate `## constraints` section above regular entries, so agents see hard rules immediately without needing to query detail.
 
 ```yaml
-- id: conv-001
-  summary: Tmp directory rules and session workflow
-  detail: "All project docs go in ./tmp/docs/..."
-  rule: "NEVER create files outside ./tmp; all docs go in ./tmp/docs/ only"
-  source: "user preference"
-  date: "2026-09-08"
+project: my-project
+version: 1
+entries:
+  - id: conv-001
+    summary: Tmp directory rules and session workflow
+    detail: "All project docs go in ./tmp/docs/..."
+    rule: "NEVER create files outside ./tmp; all docs go in ./tmp/docs/ only"
+    source: "user preference"
+    date: "2026-09-08"
 ```
 
 ## Agent Configuration

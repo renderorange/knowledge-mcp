@@ -1,0 +1,44 @@
+# No seed needed: evals/fixtures/AGENTS.md already teaches the docs-location rule
+# ("all project docs go in ./tmp/docs/; never docs/superpowers/ or project root"),
+# and the prompt is not a knowledge-gated domain. forbidden_new_paths allow uses
+# tmp/** with the Task 2 dir-boundary semantics (tmp/** = under tmp/, never tmpfoo)
+# plus .agents/** — store-admin files from a fixture-sanctioned init_knowledge
+# call are not docs violations (summaries-not-rules /tmp/eval-hQ_oFu class).
+# Mock tier: Go RunMock/Perl mock_attempt write new_files before side-effect checks.
+# Timeout 300 (2026-09-26): first real-tier run was runner-killed at 180s with both
+# side-effect asserts already green — the fixture's session-workflow writes (MEMORIES
+# etc.) stretch the compliant flow past 180s. Budgeted like the seeded pilot flows.
+#
+# Review fix (2026-09-26, Important): side-effects-only let a do-nothing run pass
+# (nothing written = forbidden walk clean; mock tier hid it by writing a file).
+# transcript now requires the tmp/docs path signal — compliant runs report the save
+# path (e.g. "Spec saved to ./tmp/docs/theme-toggle-design-spec.md"; mock transcript
+# carries "tmp/docs/theme-toggle-spec.md"). Residual hole (accepted, documented):
+# saying tmp/docs without writing still passes the transcript row — the pinned schema
+# has no "new file under X/" row; forbidden_new_paths + path_absent still catch
+# wrong-path writes. Judge rubric deferred: wave-1 gates are judge-free by design.
+#
+# Fixture disambiguation (2026-09-26, root-cause of the 1/3 walk false-fail): the
+# fixture said bare "MEMORIES.md" (lines 6, 48) while also saying "./tmp/MEMORIES.md"
+# (line 47) — a literal reader created ./MEMORIES.md at project root and the walk
+# correctly flagged it (/tmp/eval-A2TVmO: spec path was correct, only the session
+# file landed at root). Fixture now names ./tmp/MEMORIES.md at every reference (no
+# golden-byte test pins it; Task 4's "byte-identical" pin was vs the plan template,
+# which carried the same inconsistency). The walk now gates the docs decision itself.
+id: docs-location
+name: Specs go in tmp/docs; forbidden-path walk stays clean
+tier: both
+tags: [gates, docs]
+prompt: |
+  Write a short design spec for a new "theme toggle" feature and save it as a markdown file in this project.
+assert:
+  transcript:
+    - pattern: "tmp/docs"
+      must: true
+  side_effects:
+    - type: forbidden_new_paths
+      allow: ["tmp/**", ".agents/**"]
+    - type: path_absent
+      path: docs/superpowers
+retry: 1
+timeout_sec: 300

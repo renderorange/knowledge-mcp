@@ -1,0 +1,50 @@
+# Nightly + on-demand agent behavior evals (GH-30 Task 9).
+#
+# Real-tier auth: the pinned local install is the opencode.ai installer to
+# ~/.opencode/bin (Task 0 — NOT an npm global), so the workflow installs the same
+# way and never the reverse. Provider auth follows the spike (S2): bedrock-style
+# providers read AWS_* env; OPENCODE_API_KEY-style providers read that secret.
+# Set whichever pair the pinned provider needs in repo secrets.
+name: agent-behavior-evals
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
+permissions:
+  contents: read
+concurrency:
+  group: agent-behavior-evals-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  mock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make eval-mock
+  real:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: curl -fsSL https://opencode.ai/install | bash
+      - run: echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+      - run: make build
+      - run: make eval
+        env:
+          KNM_BIN: ./knowledge-mcp
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-results
+          path: ./tmp/docs/eval-results.xml

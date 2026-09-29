@@ -1,0 +1,539 @@
+use strict;
+use warnings;
+use Carp ();
+use FindBin;
+use lib "$FindBin::Bin/lib";
+use Getopt::Long ();
+use JSON::PP ();
+use POSIX ();
+use Try::Tiny ();
+use YAML::PP ();
+use File::Find ();
+use File::Basename ();
+use File::Path ();
+use Eval::Sandbox;
+use Eval::Assert;
+use Eval::Judge;
+
+my ($want_scenario, $want_tag, $xml_path, $mock, $want_model);
+Getopt::Long::GetOptions(
+    "scenario=s" => \$want_scenario,
+    "tag=s"      => \$want_tag,
+    "xml=s"      => \$xml_path,
+    "mock"       => \$mock,
+    "model=s"    => \$want_model,
+) or Carp::confess("bad options");
+
+my $model = _resolve_model($want_model, $ENV{KNM_MODEL});
+
+if (!$mock) {
+    my $found = system("command -v opencode >/dev/null 2>&1");
+    if ($found != 0) {
+        Carp::confess("opencode binary not found; real-tier evals require it (no silent skip)");
+    }
+}
+
+my $bin = $ENV{KNM_BIN} || "knowledge-mcp";
+
+my @scenarios;
+for my $f (glob "$FindBin::Bin/scenarios/*.yaml") {
+    my $sc;
+    Try::Tiny::try {
+        $sc = YAML::PP->new->load_file($f);
+    }
+    Try::Tiny::catch {
+        Carp::confess("failed to load $f: $_");
+    };
+    if ($want_scenario && $sc->{id} ne $want_scenario) {
+        next;
+    }
+    if ($want_tag && !grep { $_ eq $want_tag } @{ $sc->{tags} || [] }) {
+        next;
+    }
+    if (($sc->{tier} || "") eq "mock") {
+        next;
+    }
+    push @scenarios, { %$sc, _file => $f };
+}
+
+if (!@scenarios) {
+    print "no scenarios matched filters\n";
+}
+
+my @results;
+for my $sc (@scenarios) {
+    push @results, run_one($sc, $bin, $mock ? 1 : 0);
+}
+
+report(\@results, $xml_path);
+my $failed = grep { $_->{failed} } @results;
+exit($failed ? 1 : 0);
+
+sub _resolve_model {
+    my ($flag, $env) = @_;
+    my $model = "";
+    if (defined $flag && "$flag" =~ /\S/) {
+        $model = "$flag";
+    }
+    elsif (defined $env && "$env" =~ /\S/) {
+        $model = "$env";
+    }
+    else {
+        $model = "mimo/mimo-v2.6-pro";
+    }
+    if ($model !~ m{^[^/]+/.+}) {
+        Carp::confess("model must be in provider/model form: $model");
+    }
+    return $model;
+}
+
+sub run_one {
+    my ($sc, $bin, $mock) = @_;
+    my $attempts = 1;
+    if (!$mock && $sc->{retry}) {
+        $attempts = 1 + $sc->{retry};
+    }
+    my $last;
+    for my $try (1 .. $attempts) {
+        if ($mock) {
+            $last = mock_attempt($sc, $bin);
+        }
+        else {
+            $last = attempt($sc, $bin);
+        }
+        if (!$last->{failed}) {
+            last;
+        }
+        if ($try >= $attempts) {
+            last;
+        }
+        if (!_flakeable($last->{checks})) {
+            last;
+        }
+    }
+    return $last;
+}
+
+# _flakeable reports whether any failing check row is retry-sensitive
+# (runner/tooling noise or judge calls). Deterministic assertion failures
+# never retry — a rerun cannot change them.
+sub _flakeable {
+    my ($checks) = @_;
+    for my $c (@$checks) {
+        if ($c->{pass}) {
+            next;
+        }
+        if ($c->{name} eq "runner_timeout" || $c->{name} eq "opencode_exit" || $c->{name} eq "tool_log" || $c->{name} eq "capture_polluted") {
+            return 1;
+        }
+        if (index($c->{name}, "judge") == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+sub attempt {
+    my ($sc, $bin) = @_;
+    my $sb = Eval::Sandbox->build($sc, {
+        bin          => $bin,
+        model        => $model,
+        make_git     => 1,
+        fixtures_dir => "$FindBin::Bin/fixtures",
+    });
+    if (!$sb->{provider_lifted}) {
+        $sb->teardown();
+        Carp::confess("real-tier evals need the $sb->{provider_key} provider block for model " .
+            "$sb->{model} in the host opencode config (default ~/.config/opencode/opencode.jsonc)");
+    }
+    local $ENV{HOME} = $sb->{home};
+    local $ENV{OPENCODE_CONFIG} = "$sb->{home}/.config/opencode/opencode.jsonc";
+
+    my ($exit, $timed_out, $signal) = _spawn_opencode($sb, $sc->{prompt});
+
+    my $transcript = "";
+    if (open my $fh, "<", $sb->{transcript}) {
+        local $/;
+        $transcript = <$fh> // "";
+        close $fh;
+    }
+    my ($tool_calls, $tool_err) = _tool_calls($sb);
+    my ($new_files, $new_err) = _new_files($sb);
+    my %ev = (
+        transcript  => $transcript,
+        tool_calls  => $tool_calls,
+        new_files   => $new_files,
+        git_commits => _git_commits($sb),
+        root        => $sb->{project},
+    );
+    if (defined $new_err) {
+        $ev{new_files} = undef;
+        $ev{new_files_error} = $new_err;
+    }
+    my @checks = @{ Eval::Assert::check($sc, \%ev) };
+    # Event-stream/debug JSON in the merged capture means the render fell off the
+    # rails (observed as an empty final assistant message with prt_ part ids and
+    # reasoning event objects in the middle of a default-format transcript) —
+    # tooling noise in the tool_log/opencode_exit family, not behavioral signal.
+    if ($transcript =~ /"type":"reasoning"|"type":"step_start"|prt_[A-Za-z0-9]{8,}/) {
+        push @checks, {
+            name   => "capture_polluted",
+            pass   => 0,
+            detail => "event-stream JSON/part-ids leaked into the transcript capture (tooling noise; retryable)",
+        };
+    }
+    if (defined $tool_err) {
+        push @checks, {
+            name   => "tool_log",
+            pass   => 0,
+            detail => "tool_call evidence collection failed: $tool_err",
+        };
+    }
+    if ($timed_out) {
+        push @checks, {
+            name   => "runner_timeout",
+            pass   => 0,
+            detail => "killed after $sb->{timeout_sec}s (runner-side timeout; not an opencode exit code)",
+        };
+    }
+    elsif ($exit != 0 || $signal != 0) {
+        my $detail = "exit=$exit";
+        if ($signal != 0) {
+            $detail = "exit=$exit signal=$signal";
+        }
+        if ($transcript =~ /try again in 15 minutes|Model use case details have not been submitted/) {
+            $detail .= "; infra flake (bedrock model error), not a scenario regression";
+        }
+        push @checks, { name => "opencode_exit", pass => 0, detail => $detail };
+    }
+    my $pre_failed = grep { !$_->{pass} } @checks;
+    if (!$pre_failed && defined $sc->{judge}) {
+        my $judge_row;
+        Try::Tiny::try {
+            my $j = Eval::Judge->grade($sc, $transcript, {
+                model      => $sb->{model},
+                dir        => $sb->{project},
+                tool_calls => $tool_calls,
+            });
+            my $min = defined $sc->{judge}{min} ? "$sc->{judge}{min}" : "0";
+            $judge_row = {
+                name   => "judge score=$j->{score} min=$min",
+                pass   => $j->{pass} ? 1 : 0,
+                detail => defined $j->{reason} ? "$j->{reason}" : "",
+            };
+        }
+        Try::Tiny::catch {
+            $judge_row = {
+                name   => "judge error",
+                pass   => 0,
+                detail => "judge crashed: $_",
+            };
+        };
+        push @checks, $judge_row;
+    }
+    my $failed = grep { !$_->{pass} } @checks;
+    $sb->teardown();
+    return { id => $sc->{id}, checks => \@checks, failed => $failed };
+}
+
+sub mock_attempt {
+    my ($sc, $bin) = @_;
+    my $path = "$FindBin::Bin/mock_agents/$sc->{id}.jsonl";
+    if (!-e $path) {
+        return {
+            id      => $sc->{id},
+            checks  => [ { name => "mock_evidence", pass => 0, detail => "missing $path" } ],
+            failed  => 1,
+        };
+    }
+    my $me = _load_mock_evidence($path);
+    my $sb = Eval::Sandbox->build($sc, {
+        bin          => $bin,
+        model        => $model,
+        make_git     => 0,
+        fixtures_dir => "$FindBin::Bin/fixtures",
+    });
+    for my $rel (@{ $me->{new_files} }) {
+        $sb->write_file({ path => $rel, content => "mock" });
+    }
+    my %ev = (
+        transcript  => $me->{transcript},
+        tool_calls  => $me->{tool_calls},
+        new_files   => $me->{new_files},
+        git_commits => $me->{git_commits},
+        root        => $sb->{project},
+    );
+    my $checks = Eval::Assert::check($sc, \%ev);
+    my $failed = grep { !$_->{pass} } @$checks;
+    $sb->teardown();
+    return { id => $sc->{id}, checks => $checks, failed => $failed };
+}
+
+sub _spawn_opencode {
+    my ($sb, $prompt) = @_;
+    my $pid = fork();
+    if (!defined $pid) {
+        Carp::confess("fork failed: $!");
+    }
+    if ($pid == 0) {
+        setpgrp(0, 0);
+        open(STDIN, "<", "/dev/null");
+        open(STDOUT, ">", $sb->{transcript});
+        open(STDERR, ">&", \*STDOUT);
+        exec("opencode", "run",
+            "--dir", $sb->{project},
+            "--model", $sb->{model},
+            "--format", "default",
+            $prompt,
+        ) or POSIX::_exit(127);
+    }
+    my $timed_out = 0;
+    local $SIG{ALRM} = sub {
+        $timed_out = 1;
+        kill "KILL", $pid;
+        kill "KILL", -$pid;
+    };
+    alarm($sb->{timeout_sec});
+    my $reaped = waitpid($pid, 0);
+    if ($reaped == -1) {
+        $reaped = waitpid($pid, 0);
+    }
+    alarm(0);
+    my $status = $?;
+    return ($status >> 8, $timed_out, $status & 127);
+}
+
+sub _tool_calls {
+    my ($sb) = @_;
+    my $path = $sb->{tool_log};
+    if (!-e $path) {
+        return ([], undef);
+    }
+    my $prefixes = _mcp_prefixes($sb);
+    my @calls;
+    my $err;
+    my $n = 0;
+    if (open my $fh, "<", $path) {
+        while (my $line = <$fh>) {
+            $n++;
+            if ($line !~ /\S/) {
+                next;
+            }
+            my $row;
+            Try::Tiny::try {
+                $row = JSON::PP::decode_json($line);
+            }
+            Try::Tiny::catch {
+                $err = "$path:$n: $_";
+            };
+            if (defined $err) {
+                last;
+            }
+            if (ref($row) eq "HASH" && defined $row->{tool}) {
+                my $name = "$row->{tool}";
+                for my $prefix (@$prefixes) {
+                    if (index($name, $prefix) == 0) {
+                        $name = substr($name, length($prefix));
+                        last;
+                    }
+                }
+                $row->{tool} = $name;
+            }
+            push @calls, $row;
+        }
+        close $fh;
+    }
+    else {
+        return (undef, "read $path: $!");
+    }
+    if (defined $err) {
+        return ([], $err);
+    }
+    return (\@calls, undef);
+}
+
+# _mcp_prefixes reads the sandbox opencode config and returns the "<server>_"
+# prefixes opencode gives MCP tool names (spike convention: <server>_<tool>).
+# An unreadable or malformed config yields no prefixes, so names pass through
+# unstripped instead of guessing.
+sub _mcp_prefixes {
+    my ($sb) = @_;
+    my $path = $ENV{OPENCODE_CONFIG} || "$sb->{home}/.config/opencode/opencode.jsonc";
+    my $raw = "";
+    if (open my $fh, "<", $path) {
+        local $/;
+        $raw = <$fh> // "";
+        close $fh;
+    }
+    else {
+        return [];
+    }
+    my $doc;
+    Try::Tiny::try {
+        $doc = JSON::PP::decode_json($raw);
+    }
+    Try::Tiny::catch {
+        $doc = undef;
+    };
+    if (ref($doc) ne "HASH") {
+        return [];
+    }
+    if (ref($doc->{mcp}) ne "HASH") {
+        return [];
+    }
+    my @prefixes = map { $_ . "_" } keys %{ $doc->{mcp} };
+    @prefixes = sort { length($b) <=> length($a) } @prefixes;
+    return \@prefixes;
+}
+
+sub _new_files {
+    my ($sb) = @_;
+    my $root = $sb->{project};
+    my $before = $sb->{manifest_before};
+    if (ref($before) ne "HASH") {
+        return (undef, "manifest_before missing from sandbox");
+    }
+    my @new;
+    my $err;
+    Try::Tiny::try {
+        File::Find::find(sub {
+            if (-d $_) {
+                return;
+            }
+            my $rel = $File::Find::name;
+            $rel =~ s{^\Q$root\E/}{};
+            if (index($rel, ".git/") == 0) {
+                return;
+            }
+            if (!$before->{$rel}) {
+                push @new, $rel;
+            }
+        }, $root);
+    }
+    Try::Tiny::catch {
+        $err = "new-file walk failed: $_";
+    };
+    if (defined $err) {
+        return (undef, $err);
+    }
+    return (\@new, undef);
+}
+
+sub _git_commits {
+    my ($sb) = @_;
+    my $pid = open(my $fh, "-|");
+    if (!defined $pid) {
+        return 0;
+    }
+    if ($pid == 0) {
+        open(STDERR, ">", "/dev/null");
+        exec("git", "-C", $sb->{project}, "rev-list", "--count", "HEAD") or POSIX::_exit(127);
+    }
+    my $count = "";
+    local $/;
+    $count = <$fh> // "";
+    close $fh;
+    if ($? != 0) {
+        return 0;
+    }
+    chomp $count;
+    return $count ? 0 + $count : 0;
+}
+
+sub _load_mock_evidence {
+    my ($path) = @_;
+    my %ev = (
+        transcript  => "",
+        tool_calls  => [],
+        new_files   => [],
+        git_commits => 0,
+    );
+    if (open my $fh, "<", $path) {
+        my $n = 0;
+        while (my $line = <$fh>) {
+            $n++;
+            if ($line !~ /\S/) {
+                next;
+            }
+            my $row;
+            Try::Tiny::try {
+                $row = JSON::PP::decode_json($line);
+            }
+            Try::Tiny::catch {
+                Carp::confess("$path:$n: $_");
+            };
+            if (ref($row) ne "HASH") {
+                Carp::confess("$path:$n: row is not a JSON object");
+            }
+            if (defined $row->{transcript}) {
+                $ev{transcript} .= $row->{transcript} . "\n";
+            }
+            if (ref($row->{tool_calls}) eq "ARRAY") {
+                push @{ $ev{tool_calls} }, @{ $row->{tool_calls} };
+            }
+            if (ref($row->{new_files}) eq "ARRAY") {
+                push @{ $ev{new_files} }, @{ $row->{new_files} };
+            }
+            if (defined $row->{git_commits}) {
+                $ev{git_commits} = 0 + $row->{git_commits};
+            }
+        }
+        close $fh;
+    }
+    else {
+        Carp::confess("read $path: $!");
+    }
+    return \%ev;
+}
+
+sub report {
+    my ($results, $xml) = @_;
+    for my $r (@$results) {
+        my $status = $r->{failed} ? "FAIL" : "PASS";
+        print "[$status] $r->{id}\n";
+        for my $c (@{ $r->{checks} || [] }) {
+            if ($c->{pass}) {
+                print "  - $c->{name}: ok\n";
+            }
+            else {
+                print "  - $c->{name}: FAIL ($c->{detail})\n";
+            }
+        }
+    }
+    if ($xml) {
+        my $dir = File::Basename::dirname($xml);
+        if ($dir ne "" && $dir ne "." && !-d $dir) {
+            File::Path::make_path($dir);
+        }
+        open my $fh, ">", $xml or Carp::confess("write $xml: $!");
+        print {$fh} qq{<?xml version="1.0"?><testsuites>};
+        for my $r (@$results) {
+            my $cases = join "", map { _xml_case($_) } @{ $r->{checks} || [] };
+            print {$fh} "<testsuite name=\"" . _xml_escape($r->{id}) . "\">$cases</testsuite>";
+        }
+        print {$fh} "</testsuites>";
+        close $fh;
+    }
+    return;
+}
+
+sub _xml_case {
+    my ($c) = @_;
+    my $name = _xml_escape($c->{name});
+    if ($c->{pass}) {
+        return "<testcase name=\"$name\"/>";
+    }
+    return "<testcase name=\"$name\"><failure>" . _xml_escape($c->{detail}) . "</failure></testcase>";
+}
+
+sub _xml_escape {
+    my ($s) = @_;
+    if (!defined $s) {
+        $s = "";
+    }
+    $s =~ s/&/&amp;/g;
+    $s =~ s/</&lt;/g;
+    $s =~ s/>/&gt;/g;
+    $s =~ s/"/&quot;/g;
+    return $s;
+}

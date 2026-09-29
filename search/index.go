@@ -419,6 +419,11 @@ func (i *Index) WaitReady() {
 	<-i.ready
 }
 
+// DocCount reports the number of documents currently in the index.
+func (i *Index) DocCount() (uint64, error) {
+	return i.index.DocCount()
+}
+
 // IndexAll indexes all projects known to the resolver in the background.
 // It closes the ready channel when complete.
 func (i *Index) IndexAll(res *projects.Resolver) {
@@ -442,6 +447,9 @@ func (i *Index) indexProjectKnowledge(agentsDir, projectName string) {
 		catPath := knowledge.CategoryFilePath(agentsDir, cat)
 		kf, err := knowledge.Load(catPath)
 		if err != nil {
+			if !os.IsNotExist(err) {
+				log.Printf("warning: failed to load knowledge file %s: %v", catPath, err)
+			}
 			continue
 		}
 		for _, entry := range kf.Entries {

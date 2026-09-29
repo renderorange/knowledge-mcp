@@ -32,7 +32,7 @@ func TestRunGolden(t *testing.T) {
 
 	in := bytes.NewBufferString(`{"hook_event_name":"PostToolUse","tool_name":"Grep","tool_input":{"pattern":"tmp directory"}}`)
 	var out bytes.Buffer
-	if err := Run(in, &out); err != nil {
+	if err := Run(in, &out, nil); err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
 	s := out.String()
@@ -46,7 +46,7 @@ func TestRunNoRecordSilent(t *testing.T) {
 	t.Setenv("KNM_HOOK_CWD", t.TempDir())
 	in := bytes.NewBufferString(`{"hook_event_name":"PostToolUse","tool_name":"Grep","tool_input":{"pattern":"x"}}`)
 	var out bytes.Buffer
-	if err := Run(in, &out); err != nil {
+	if err := Run(in, &out, nil); err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
 	if out.Len() != 0 {
@@ -58,7 +58,7 @@ func TestRunNoPatternSilent(t *testing.T) {
 	t.Setenv("KNM_CONFIG_DIR", filepath.Join(t.TempDir(), "knowledge-mcp"))
 	in := bytes.NewBufferString(`{"hook_event_name":"PostToolUse","tool_name":"Grep","tool_input":{}}`)
 	var out bytes.Buffer
-	if err := Run(in, &out); err != nil {
+	if err := Run(in, &out, nil); err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
 	if out.Len() != 0 {

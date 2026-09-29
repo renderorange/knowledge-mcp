@@ -1,0 +1,3 @@
+{"transcript": "Per the knowledge store (conv-003): commit messages are exactly GH-<N>: <lowercase verb phrase>, for example GH-7: add console logging. No Conventional Commits."}
+{"tool_calls": [{"tool": "query_knowledge", "argv": ["git commit message format"]}]}
+{"git_commits": 0}

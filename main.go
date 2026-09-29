@@ -2,21 +2,21 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/renderorange/knowledge-mcp/hook"
 	"github.com/renderorange/knowledge-mcp/install"
+	"github.com/renderorange/knowledge-mcp/internal/diag"
 	"github.com/renderorange/knowledge-mcp/projects"
 	"github.com/renderorange/knowledge-mcp/search"
 	"github.com/renderorange/knowledge-mcp/tools"
@@ -53,6 +53,8 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "debug":
+			os.Exit(diag.RunDoctor(os.Args[2:], version))
 		case "hook-augment":
 			runHook()
 			return
@@ -66,6 +68,8 @@ func main() {
 	indexOverride := flag.String("index", "", "Override the search index location")
 	storeDir := flag.String("store", "", "Central directory for all knowledge stores; in-tree .agents/ is ignored when set")
 	noIndexOnStartup := flag.Bool("no-index-on-startup", false, "Skip indexing on startup; index may be stale or empty")
+	debugMode := flag.Bool("debug", false, "Log diagnostics to stderr (and --log-file if set); lands in the client's log")
+	logFile := flag.String("log-file", "", "Tee debug lines to this file (implies --debug)")
 	flag.Var(&roots, "root", "Org root whose immediate children are projects (repeatable)")
 	flag.Var(&projs, "project", "Single project root (repeatable)")
 	flag.Parse()
@@ -75,11 +79,27 @@ func main() {
 		os.Exit(0)
 	}
 
+	var dbg *diag.Logger
+	if *debugMode || *logFile != "" {
+		out := io.Writer(os.Stderr)
+		if *logFile != "" {
+			f, lerr := os.OpenFile(*logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			if lerr != nil {
+				log.Printf("warning: open --log-file %s: %v (continuing with stderr only)", *logFile, lerr)
+			} else {
+				defer f.Close()
+				out = io.MultiWriter(os.Stderr, f)
+			}
+		}
+		dbg = diag.New(out)
+	}
+
 	if len(roots) == 0 && len(projs) == 0 && *globalPath == "" {
 		fmt.Fprintln(os.Stderr, "error: at least one --project, --root, or --global is required")
 		os.Exit(1)
 	}
 
+	tResolve := time.Now()
 	resolver, warnings, err := projects.BuildWithStore([]string(roots), []string(projs), *globalPath, *storeDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -88,8 +108,10 @@ func main() {
 	for _, w := range warnings {
 		log.Printf("warning: %s", w)
 	}
+	dbg.Debugf("startup", "resolve.done", "entries", len(resolver.Entries()), "warnings", len(warnings), "dur", time.Since(tResolve).Round(time.Millisecond))
 
-	indexBasePath, err := indexLocation(*indexOverride, *storeDir, roots, projs, resolver.Entries())
+	tIndex := time.Now()
+	indexBasePath, err := search.Location(*indexOverride, *storeDir, []string(roots), []string(projs), resolver.Entries())
 	if err != nil {
 		log.Fatalf("determine index location: %v", err)
 	}
@@ -104,7 +126,14 @@ func main() {
 	var afterOpen func()
 	if !*noIndexOnStartup {
 		afterOpen = func() {
+			dbg.Debugf("startup", "index.open", "path", indexBasePath, "dur", time.Since(tIndex).Round(time.Millisecond))
+			dbg.Debugf("startup", "index.kick", "names", len(resolver.KnownNames()))
 			idx.IndexAll(resolver)
+		}
+	} else {
+		dbg.Debugf("startup", "index.kick", "skipped", "no-index-on-startup")
+		afterOpen = func() {
+			dbg.Debugf("startup", "index.open", "path", indexBasePath, "dur", time.Since(tIndex).Round(time.Millisecond))
 		}
 	}
 	idx.OpenBackground(afterOpen)
@@ -117,7 +146,7 @@ func main() {
 	)
 
 	// Register tools
-	registerTools(s, buildHandlers(resolver, idx, len(roots) > 0))
+	registerTools(s, diag.WrapHandlers(buildHandlers(resolver, idx, len(roots) > 0), dbg))
 
 	// Graceful shutdown on SIGTERM/SIGINT
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -126,6 +155,7 @@ func main() {
 	go func() {
 		<-ctx.Done()
 		log.Println("shutting down...")
+		dbg.Debugf("startup", "shutdown", "signal", "sigterm|sigint")
 		idx.Close()
 		os.Exit(0)
 	}()
@@ -138,7 +168,7 @@ func main() {
 
 // runHook executes hook-augment against the recorded install config.
 func runHook() {
-	if err := hook.Run(os.Stdin, os.Stdout); err != nil {
+	if err := hook.Run(os.Stdin, os.Stdout, diag.FromEnv(os.Stderr)); err != nil {
 		if os.Getenv("KNM_LOG_LEVEL") != "" {
 			fmt.Fprintf(os.Stderr, "hook-augment: %v\n", err)
 		}
@@ -172,33 +202,4 @@ func buildHandlers(res *projects.Resolver, idx *search.Index, orgMode bool) map[
 		h[tools.ToolListProjects] = tools.ListProjectsHandler(res)
 	}
 	return h
-}
-
-// indexLocation picks the bleve index path: explicit override, a --store
-// default (<store>/.index), legacy per-config locations for single-entry
-// configs, or a hashed XDG state dir for multi-entry configs.
-func indexLocation(override, store string, roots, projs pathList, canonicalEntries []string) (string, error) {
-	if override != "" {
-		return filepath.Abs(override)
-	}
-	if store != "" {
-		return filepath.Join(store, ".index"), nil
-	}
-	if len(roots)+len(projs) == 1 {
-		single := roots
-		if len(single) == 0 {
-			single = projs
-		}
-		return filepath.Join(single[0], ".agents", ".index"), nil
-	}
-	base := os.Getenv("XDG_STATE_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("resolve state dir: %w", err)
-		}
-		base = filepath.Join(home, ".local", "state")
-	}
-	sum := sha256.Sum256([]byte(strings.Join(canonicalEntries, "\x00")))
-	return filepath.Join(base, "knowledge-mcp", hex.EncodeToString(sum[:8])+".index"), nil
 }

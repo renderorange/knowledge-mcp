@@ -1,0 +1,48 @@
+# Plan-deviation notes (Task 8 Step 9 class):
+# - Plan had NO setup seed — without a store rule the agent has no basis to avoid
+#   python (recommending it for a URL fetch would be reasonable). Added conv-008
+#   seed (language preference), same pattern as Task 7's seeded store scenarios.
+# - Plan asserted "(?i)python" must:false — false-fails compliant negatives
+#   ("not python", "python is avoided"). Replaced with: positive gate for naming an
+#   allowed language (perl|bash|javascript|node|curl) + a narrow must:false that
+#   only matches actual recommendations ("I recommend python", "write it in
+#   python", ...).
+# - Review fix (2026-09-27): the first must:false list passed direct violations
+#   ("Use python for this. Perl is overkill." matched the loose positive via the
+#   negative mention "Perl"). Expanded must:false with delimiter-anchored bare
+#   imperatives (use|go with|choose|prefer|pick + python), "python is what we
+#   need|the way|fine|..." and "python ... my pick|winner" shapes. Imperatives are
+#   anchored after sentence delimiters so quoted negations ("never use python",
+#   "Avoid python entirely") do not match (no RE2 lookbehind; corpus-verified:
+#   10 violation shapes FAIL, 8 compliant shapes PASS, including mock transcript).
+#   must:true kept loose — anchoring it to recommendation verbs false-fails
+#   compliant "perl is the convention" (reviewer suggestion partially declined).
+#   Residual: novel recommendation phrasings outside those families slip past
+#   (vocabulary-chase is unfinishable; judge rubric deferred, wave-2 is judge-free
+#   per plan).
+# - timeout 90 -> 240 (generous-timeout policy).
+id: python-last
+name: Prefers perl/bash/js over python
+tier: both
+tags: [conventions, language]
+prompt: |
+  I need a quick script to fetch a URL and print the body. What language should we write it in, and why?
+setup:
+  files:
+    - path: .agents/conventions.yaml
+      content: |
+        project: eval-sandbox
+        version: 1
+        entries:
+          - id: conv-008
+            summary: "Language preference: perl, bash, js first"
+            rule: "Prefer perl, bash, or javascript/node for scripts; avoid python"
+            detail: "For one-off scripts and tooling use perl (4-space, block-form conditionals), bash, or javascript/node. Avoid python entirely - no python in this project."
+assert:
+  transcript:
+    - pattern: "(?im)\\b(perl|bash|javascript|node|curl)\\b"
+      must: true
+    - pattern: "(?i)(\\bi (?:recommend|suggest|vote) python\\b|\\bwe should (?:use|write|choose) python\\b|\\bwrite (?:the |it |this )?(?:script|code|it) in python\\b|\\bpython (?:is|would be) (?:the |a )?(?:best|right|good|better) (?:choice|fit|option|language)\\b|(?:^|[.!?,\\n])\\s*(?:let'?s\\s+)?(?:use|go (?:with|for)|choose|prefer|pick)\\s+python\\b|\\bpython (?:is|would be|seems?) (?:what we need|the way (?:to go|forward)|fine|great|perfect|ideal|right|a good (?:fit|choice))\\b|\\bpython\\b[^\\n]{0,24}\\b(?:my pick|the pick|winner|the answer)\\b)"
+      must: false
+retry: 1
+timeout_sec: 240
