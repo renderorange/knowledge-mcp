@@ -47,7 +47,7 @@ func RunDoctor(args []string, version string) int {
 	globalPath := fs.String("global", "", "Path to a global knowledge store shared across all projects")
 	indexOverride := fs.String("index", "", "Deprecated: the search index is in-memory; accepted and ignored")
 	storeDir := fs.String("store", "", "Central directory for all knowledge stores")
-	noIndexOnStartup := fs.Bool("no-index-on-startup", false, "Deprecated: the index is always built; accepted and ignored")
+	noIndexOnStartup := fs.Bool("no-index-on-startup", false, "Deprecated: the index is always built at startup; accepted and ignored")
 	timeout := fs.Duration("timeout", 5*time.Second, "Self-query watchdog deadline")
 	logFile := fs.String("log-file", "", "Tee the report to this file")
 	fs.Var(&roots, "root", "Org root whose immediate children are projects (repeatable)")
@@ -103,7 +103,7 @@ func RunDoctor(args []string, version string) int {
 		fmt.Fprintln(out, "warning: --index is deprecated and ignored; the search index is per-process in-memory")
 	}
 	if *noIndexOnStartup {
-		fmt.Fprintln(out, "warning: --no-index-on-startup is deprecated and ignored; the index is always built")
+		fmt.Fprintln(out, "warning: --no-index-on-startup is deprecated and ignored; the index is always built at startup")
 	}
 
 	tIndex := time.Now()
@@ -117,7 +117,7 @@ func RunDoctor(args []string, version string) int {
 
 	fmt.Fprintln(out, "\n== Startup trail ==")
 	fmt.Fprintf(out, "resolve.done dur=%s\n", resolveDur)
-	fmt.Fprintf(out, "index.kick done (in-memory, dur=%s)\n", time.Since(tIndex).Round(time.Millisecond))
+	fmt.Fprintf(out, "index.kick started (in-memory, dur=%s)\n", time.Since(tIndex).Round(time.Millisecond))
 	go idx.IndexAll(resolver)
 
 	tQuery := time.Now()

@@ -58,16 +58,18 @@ func TestRunDoctorHealthyFixture(t *testing.T) {
 	if strings.Contains(out, "query.blocked") {
 		t.Errorf("unexpected blocking finding: %s", out)
 	}
-	// The kick line must precede the self-query result: the self-query only
-	// returns once IndexAll closes the ready channel.
+	// The ordering assertion pins synchronous print order: the kick line is
+	// printed before the self-query is issued. The ready-channel gate itself
+	// is proven by the absence of a query.blocked finding on the real ready
+	// channel (Query blocks on <-i.ready).
 	trail := strings.Index(out, "== Startup trail ==")
-	kick := strings.Index(out, "index.kick done")
+	kick := strings.Index(out, "index.kick started")
 	query := strings.Index(out, "self-query")
 	if trail < 0 || kick < 0 || query < 0 {
 		t.Fatalf("missing trail/kick/self-query markers in output:\n%s", out)
 	}
 	if !(trail < kick && kick < query) {
-		t.Errorf("index.kick done out of order (trail=%d kick=%d query=%d):\n%s", trail, kick, query, out)
+		t.Errorf("index.kick started out of order (trail=%d kick=%d query=%d):\n%s", trail, kick, query, out)
 	}
 }
 
@@ -135,7 +137,7 @@ func TestRunDoctorNoIndexOnStartupIgnored(t *testing.T) {
 			t.Errorf("RunDoctor() = %d, want 0", code)
 		}
 	})
-	for _, want := range []string{"--no-index-on-startup is deprecated", "index.kick done"} {
+	for _, want := range []string{"--no-index-on-startup is deprecated", "index.kick started"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in output:\n%s", want, out)
 		}

@@ -182,8 +182,7 @@ General notes:
   does not survive a restart. There is no index on disk anywhere, no lock,
   and no contention — any number of instances may query concurrently.
 - `--index <path>` is deprecated and ignored (the search index is in-memory).
-- Old leftover `.agents/.index/` directories from earlier releases are inert
-  and can be deleted.
+- Old leftover `.agents/.index/` and `<store>/.index/` directories and `$XDG_STATE_HOME/knowledge-mcp/` artifacts from earlier releases are inert and can be deleted.
 
 ### Startup Options
 

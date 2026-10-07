@@ -2,7 +2,7 @@ project: knowledge-mcp
 version: 1
 entries:
     - id: conv-001
-      summary: Go project standards: gofmt, go vet, go test, GH-N commits
+      summary: "Go project standards: gofmt, go vet, go test, GH-N commits"
       detail: |-
         Format: gofmt (make fmt runs gofmt -s -w .). gofmt -l must output nothing.
         Verify: go test ./... and go vet ./... must pass before work is claimed done; go build ./... must compile all packages.
@@ -13,7 +13,7 @@ entries:
       source: code review, 2026-09-08
       date: "2026-09-08"
     - id: conv-002
-      summary: Knowledge entry content rules for this project's own store
+      summary: "Knowledge entry content rules for this project's own store"
       detail: |-
         Detail is 10-20 lines of query-able facts, not source copies.
         Summary is a topic line (max 100 chars); enforcement text goes in the rule field, which list_knowledge surfaces as constraints.
