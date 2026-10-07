@@ -53,7 +53,7 @@ func runIndexAllCapture(t *testing.T, dir string, files map[string]string) (stri
 		t.Fatalf("BuildWithStore() error: %v", err)
 	}
 
-	idx := newIndex(t, filepath.Join(dir, "test.bleve"), []string{"test-project"})
+	idx := newIndex(t)
 
 	var logBuf syncBuffer
 	log.SetOutput(&logBuf)
