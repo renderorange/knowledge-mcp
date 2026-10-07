@@ -15,11 +15,12 @@ import (
 	"github.com/renderorange/knowledge-mcp/search"
 )
 
-// newIndexReady creates an index and closes the ready channel immediately,
-// for unit tests that add documents directly and query without IndexAll.
-func newIndexReady(t *testing.T, path string, names []string) *search.Index {
+// newIndexReady creates an in-memory index and closes the ready channel
+// immediately, for unit tests that add documents directly and query without
+// IndexAll.
+func newIndexReady(t *testing.T) *search.Index {
 	t.Helper()
-	idx, err := search.NewIndex(path, names)
+	idx, err := search.NewIndex()
 	if err != nil {
 		t.Fatalf("search.NewIndex() error: %v", err)
 	}
@@ -86,8 +87,7 @@ func TestWriteHandler(t *testing.T) {
 	kf := &knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{}}
 	knowledge.Save(knowledge.CategoryFilePath(filepath.Join(dir, ".agents"), "conventions"), kf)
 
-	indexPath := filepath.Join(dir, ".index")
-	idx, _ := search.NewIndex(indexPath, []string{"test"})
+	idx, _ := search.NewIndex()
 	defer idx.Close()
 
 	resolver, _, err := projects.Build([]string{root}, nil, "")
@@ -221,8 +221,7 @@ func TestQueryHandler(t *testing.T) {
 	kf := &knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{}}
 	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), kf)
 
-	indexPath := filepath.Join(dir, ".index")
-	idx := newIndexReady(t, indexPath, []string{"test"})
+	idx := newIndexReady(t)
 	defer idx.Close()
 
 	resolver, _, err := projects.Build([]string{root}, nil, "")
@@ -301,8 +300,7 @@ func TestListHandler(t *testing.T) {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
 
-	indexPath := filepath.Join(root, ".index")
-	idx := newIndexReady(t, indexPath, []string{"test"})
+	idx := newIndexReady(t)
 	defer idx.Close()
 
 	handler := ListHandler(resolver, idx)
@@ -376,8 +374,7 @@ func TestUpdateHandler(t *testing.T) {
 	kf := &knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{entry}}
 	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), kf)
 
-	indexPath := filepath.Join(dir, ".index")
-	idx, _ := search.NewIndex(indexPath, []string{"test"})
+	idx, _ := search.NewIndex()
 	defer idx.Close()
 
 	resolver, _, err := projects.Build([]string{root}, nil, "")
@@ -710,7 +707,7 @@ func TestQueryProjectIsolation(t *testing.T) {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
 
-	idx := newIndexReady(t, filepath.Join(orgDir, ".index"), []string{"projectA", "projectB"})
+	idx := newIndexReady(t)
 	defer idx.Close()
 
 	write := WriteHandler(resolver, idx)
@@ -797,8 +794,7 @@ func TestQueryWithGlobalMerge(t *testing.T) {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
 
-	indexPath := filepath.Join(root, ".index")
-	idx := newIndexReady(t, indexPath, []string{"myproj", "_global"})
+	idx := newIndexReady(t)
 	defer idx.Close()
 
 	// Write to project
@@ -876,8 +872,7 @@ func TestQueryWithoutGlobal(t *testing.T) {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
 
-	indexPath := filepath.Join(root, ".index")
-	idx := newIndexReady(t, indexPath, []string{"myproj"})
+	idx := newIndexReady(t)
 	defer idx.Close()
 
 	write := WriteHandler(resolver, idx)
@@ -913,8 +908,7 @@ func TestWriteWithRule(t *testing.T) {
 	kf := &knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{}}
 	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), kf)
 
-	indexPath := filepath.Join(dir, ".index")
-	idx := newIndexReady(t, indexPath, []string{"test"})
+	idx := newIndexReady(t)
 	defer idx.Close()
 
 	resolver, _, err := projects.Build([]string{root}, nil, "")
@@ -1013,8 +1007,7 @@ func TestUpdateWithRule(t *testing.T) {
 	kf := &knowledge.KnowledgeFile{Project: "test", Version: 1, Entries: []knowledge.Entry{entry}}
 	knowledge.Save(knowledge.CategoryFilePath(agentsDir, "conventions"), kf)
 
-	indexPath := filepath.Join(dir, ".index")
-	idx, _ := search.NewIndex(indexPath, []string{"test"})
+	idx, _ := search.NewIndex()
 	defer idx.Close()
 
 	resolver, _, err := projects.Build([]string{root}, nil, "")
@@ -1062,8 +1055,7 @@ func TestListGlobalProvenance(t *testing.T) {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
 
-	indexPath := filepath.Join(root, ".index")
-	idx := newIndexReady(t, indexPath, []string{"myproj", "_global"})
+	idx := newIndexReady(t)
 	defer idx.Close()
 
 	handler := ListHandler(resolver, idx)
@@ -1096,8 +1088,7 @@ func TestListOrgGroupedByFile(t *testing.T) {
 	}
 	rootName := filepath.Base(root)
 
-	indexPath := filepath.Join(root, ".index")
-	idx := newIndexReady(t, indexPath, []string{rootName})
+	idx := newIndexReady(t)
 	defer idx.Close()
 
 	for _, sec := range []struct{ file, heading, detail string }{
@@ -1149,8 +1140,7 @@ func TestListConstraintsSeparation(t *testing.T) {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
 
-	indexPath := filepath.Join(root, ".index")
-	idx := newIndexReady(t, indexPath, []string{"test"})
+	idx := newIndexReady(t)
 	defer idx.Close()
 
 	handler := ListHandler(resolver, idx)

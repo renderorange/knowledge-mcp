@@ -134,7 +134,7 @@ func BuildWithStore(roots, projects []string, global, store string) (*Resolver, 
 			}
 			if storePath != "" && child.Name == ".index" {
 				warnings = append(warnings, fmt.Sprintf(
-					"skipping %s under root %s: name collides with the --store index directory",
+					"skipping %s under root %s: name is a reserved knowledge-mcp artifact directory (legacy store index)",
 					child.Name, rp))
 				continue
 			}

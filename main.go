@@ -65,9 +65,9 @@ func main() {
 	var projs pathList
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	globalPath := flag.String("global", "", "Path to a global knowledge store shared across all projects")
-	indexOverride := flag.String("index", "", "Override the search index location")
+	indexOverride := flag.String("index", "", "Deprecated: the search index is in-memory; accepted and ignored")
 	storeDir := flag.String("store", "", "Central directory for all knowledge stores; in-tree .agents/ is ignored when set")
-	noIndexOnStartup := flag.Bool("no-index-on-startup", false, "Skip indexing on startup; index may be stale or empty")
+	noIndexOnStartup := flag.Bool("no-index-on-startup", false, "Deprecated: the index is always built at startup; accepted and ignored")
 	debugMode := flag.Bool("debug", false, "Log diagnostics to stderr (and --log-file if set); lands in the client's log")
 	logFile := flag.String("log-file", "", "Tee debug lines to this file (implies --debug)")
 	flag.Var(&roots, "root", "Org root whose immediate children are projects (repeatable)")
@@ -111,32 +111,27 @@ func main() {
 	dbg.Debugf("startup", "resolve.done", "entries", len(resolver.Entries()), "warnings", len(warnings), "dur", time.Since(tResolve).Round(time.Millisecond))
 
 	tIndex := time.Now()
-	indexBasePath, err := search.Location(*indexOverride, *storeDir, []string(roots), []string(projs), resolver.Entries())
-	if err != nil {
-		log.Fatalf("determine index location: %v", err)
+	if *indexOverride != "" {
+		log.Printf("warning: --index is deprecated and ignored; the search index is per-process in-memory")
+	}
+	if *noIndexOnStartup {
+		log.Printf("warning: --no-index-on-startup is deprecated and ignored; the index is always built at startup")
 	}
 
-	idx := search.NewLazyIndex(indexBasePath, resolver.KnownNames())
+	idx, err := search.NewIndex()
+	if err != nil {
+		log.Fatalf("create search index: %v", err)
+	}
 	defer idx.Close()
 
-	// Open the index in the background: a second instance whose index is
-	// locked by another knowledge-mcp (single-writer) must not delay the
-	// MCP protocol. Tool calls degrade to a clear error until the lock
-	// frees, after which the pending open completes on its own.
-	var afterOpen func()
-	if !*noIndexOnStartup {
-		afterOpen = func() {
-			dbg.Debugf("startup", "index.open", "path", indexBasePath, "dur", time.Since(tIndex).Round(time.Millisecond))
-			dbg.Debugf("startup", "index.kick", "names", len(resolver.KnownNames()))
-			idx.IndexAll(resolver)
-		}
-	} else {
-		dbg.Debugf("startup", "index.kick", "skipped", "no-index-on-startup")
-		afterOpen = func() {
-			dbg.Debugf("startup", "index.open", "path", indexBasePath, "dur", time.Since(tIndex).Round(time.Millisecond))
-		}
-	}
-	idx.OpenBackground(afterOpen)
+	// Kick background indexing once; queries block on the ready channel
+	// until IndexAll completes (same cold-start semantics as the former
+	// on-disk index). With no disk index there is no cross-instance lock
+	// to contend on.
+	go func() {
+		dbg.Debugf("startup", "index.kick", "names", len(resolver.KnownNames()), "dur", time.Since(tIndex).Round(time.Millisecond))
+		idx.IndexAll(resolver)
+	}()
 
 	// Create MCP server
 	s := server.NewMCPServer(

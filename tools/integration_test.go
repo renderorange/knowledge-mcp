@@ -24,8 +24,7 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
 
-	indexPath := filepath.Join(dir, ".index")
-	idx := newIndexReady(t, indexPath, []string{projectName})
+	idx := newIndexReady(t)
 	defer idx.Close()
 
 	// Step 1: Init
@@ -230,8 +229,7 @@ func TestOrgWideMode(t *testing.T) {
 	initReqB.Params.Arguments = map[string]interface{}{"project_path": projB}
 	InitHandler(resolver)(context.Background(), initReqB)
 
-	indexPath := filepath.Join(orgDir, ".index")
-	idx, err := search.NewIndex(indexPath, []string{"projectA", "projectB"})
+	idx, err := search.NewIndex()
 	if err != nil {
 		t.Fatalf("NewIndex() error: %v", err)
 	}
@@ -298,7 +296,7 @@ func TestFullWorkflow(t *testing.T) {
 		t.Fatalf("projects.Build() error: %v", err)
 	}
 
-	idx := newIndexReady(t, filepath.Join(orgRoot, ".agents", ".index"), []string{"app", "lib"})
+	idx := newIndexReady(t)
 	defer idx.Close()
 
 	// 1. List projects
@@ -382,7 +380,7 @@ func TestStoreModeEndToEnd(t *testing.T) {
 		t.Errorf("expected in-tree ignore warning, got %v", warnings)
 	}
 
-	idx := newIndexReady(t, filepath.Join(store, ".index"), []string{"proj"})
+	idx := newIndexReady(t)
 	defer idx.Close()
 
 	// Init writes into the store.

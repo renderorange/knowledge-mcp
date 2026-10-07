@@ -135,7 +135,6 @@ Layout:
 
 ```
 <store>/
-  .index/                          # bleve index (default; --index wins)
   <project>/.agents/               # per-project store (qualified names nest:
                                    #   <root>/<project> -> <store>/<root>/<project>/.agents)
   <org>/.agents/knowledge/         # org-level markdown
@@ -147,8 +146,10 @@ Layout:
 - `init_knowledge` initializes the central store for resolvable paths and
   errors for others (add them via `--project`/`--root` first).
 - The store directory itself must exist and is never created for you.
-- The store is single-writer: its search index and files do not support
-  concurrent access, so point only one server at a store.
+- The store files are single-writer: their YAML reads/writes do not support
+  concurrent access across server instances, so point only one server at a
+  store for writing. Queries are safe from any instance — the search index
+  is per-process in-memory and never shared.
 
 ### Shared global store
 
@@ -177,21 +178,24 @@ General notes:
 - Each `--root` discovers its immediate children as projects (one level deep — pass deeper directories as additional flags).
 - Duplicate project basenames across roots are addressed as `<root>/<project>` (e.g. `work/api`); `list_projects` shows which names need qualification.
 - `query_knowledge` accepts org root names to search that root's `.agents/knowledge/` files. Org-level documents are indexed **per `##` section**, so a query returns the matching section(s), not the entire file.
-- Multi-entry configurations store the search index under `$XDG_STATE_HOME/knowledge-mcp/` (default `~/.local/state/knowledge-mcp/`). Single-flag configurations keep the index inside their own `.agents/` — unless `--store` is set, in which case the index lives at `<store>/.index`.
-- `--index <path>` overrides the index location in all modes.
+- The search index is built **in memory** per server process at startup and
+  does not survive a restart. There is no index on disk anywhere, no lock,
+  and no contention — any number of instances may query concurrently.
+- `--index <path>` is deprecated and ignored (the search index is in-memory).
+- Old leftover `.agents/.index/` and `<store>/.index/` directories and `$XDG_STATE_HOME/knowledge-mcp/` artifacts from earlier releases are inert and can be deleted.
 
 ### Startup Options
 
-`--no-index-on-startup` skips background indexing on startup. The server starts
-immediately with stale or empty index data; queries block until indexing completes
-if no stale data is available. Useful for large knowledge stores where startup
-indexing would delay server readiness.
+Both `--no-index-on-startup` and `--index` are deprecated no-ops. The server
+always builds its search index from the store files at startup (backgrounded;
+queries wait for it once). They remain accepted so existing configurations
+keep working without changes.
 
 ### Debugging
 
 `knowledge-mcp debug` runs a one-shot startup diagnosis against the same
 flags as server mode and exits non-zero when it finds a problem (unresolved
-project, stale or missing index, blocked queries):
+project, blocked queries):
 
 ```bash
 knowledge-mcp debug --root /path/to/org
@@ -199,9 +203,8 @@ knowledge-mcp debug --root /path/to/org
 
 The report has three sections — Resolution (projects/stores resolved),
 Startup trail (phase timings and a watchdog-bounded index self-query that
-flags the cold-index query block), and Environment (version, index
-location/source, doc count, freshness, install record) — followed by
-`ok`/`warn`/`fail` findings.
+flags a slow index kick), and Environment (version, doc count, install
+record) — followed by `ok`/`warn`/`fail` findings.
 
 For live diagnostics, run the server with `--debug` (optionally
 `--log-file <path>` to tee). Lines go to stderr, which MCP clients such as
