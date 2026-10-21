@@ -1,6 +1,17 @@
 package tools
 
-import "github.com/mark3labs/mcp-go/mcp"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/renderorange/knowledge-mcp/knowledge"
+)
+
+// categoryNames keeps tool descriptions in sync with ValidCategories.
+func categoryNames() string {
+	return strings.Join(knowledge.ValidCategories(), ", ")
+}
 
 // Tool name constants keep main.go, the registry, and generated
 // instructions in sync.
@@ -43,7 +54,7 @@ var Registry = []ToolSpec{
 		Description: "Add a new knowledge entry to a project's .agents/ store",
 		Params: []ParamSpec{
 			{Name: "project", Description: "Project name (bare if unique, else root/project)", Type: "string", Required: true},
-			{Name: "category", Description: "Category: conventions, subsystems, or decisions", Type: "string", Required: true},
+			{Name: "category", Description: fmt.Sprintf("Category: %s", categoryNames()), Type: "string", Required: true},
 			{Name: "summary", Description: "One-line description (max 100 chars)", Type: "string", Required: true},
 			{Name: "detail", Description: "Concise knowledge (10-20 lines). Summarize key facts, don't copy source files. Include only query-able information.", Type: "string", Required: true},
 			{Name: "source", Description: "How this was learned (provenance)", Type: "string", Required: true},
@@ -56,7 +67,7 @@ var Registry = []ToolSpec{
 		Params: []ParamSpec{
 			{Name: "project", Description: "Project name (bare if unique, else root/project)", Type: "string", Required: true},
 			{Name: "query", Description: "Full-text search query", Type: "string"},
-			{Name: "category", Description: "Filter by category: conventions, subsystems, or decisions", Type: "string"},
+			{Name: "category", Description: fmt.Sprintf("Filter by category: %s", categoryNames()), Type: "string"},
 			{Name: "limit", Description: "Max results (default 10)", Type: "number"},
 		},
 	},
@@ -65,7 +76,7 @@ var Registry = []ToolSpec{
 		Description: "List all knowledge entries for a project. Entries with a rule are shown first under constraints.",
 		Params: []ParamSpec{
 			{Name: "project", Description: "Project name (bare if unique, else root/project)", Type: "string", Required: true},
-			{Name: "category", Description: "Filter by category: conventions, subsystems, or decisions", Type: "string"},
+			{Name: "category", Description: fmt.Sprintf("Filter by category: %s", categoryNames()), Type: "string"},
 		},
 	},
 	{
@@ -73,7 +84,7 @@ var Registry = []ToolSpec{
 		Description: "Update an existing knowledge entry by ID",
 		Params: []ParamSpec{
 			{Name: "project", Description: "Project name (bare if unique, else root/project)", Type: "string", Required: true},
-			{Name: "category", Description: "Category: conventions, subsystems, or decisions", Type: "string", Required: true},
+			{Name: "category", Description: fmt.Sprintf("Category: %s", categoryNames()), Type: "string", Required: true},
 			{Name: "id", Description: "Entry ID to update (e.g., conv-001)", Type: "string", Required: true},
 			{Name: "summary", Description: "New summary (optional)", Type: "string"},
 			{Name: "detail", Description: "New detail (optional)", Type: "string"},

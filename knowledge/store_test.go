@@ -130,11 +130,22 @@ func TestValidationHelpers(t *testing.T) {
 	if !IsValidCategory("conventions") {
 		t.Error("conventions should be valid")
 	}
+	if !IsValidCategory("workflows") {
+		t.Error("workflows should be valid")
+	}
 	if IsValidCategory("invalid") {
 		t.Error("invalid should not be valid")
 	}
 	if CategoryPrefix("conventions") != "conv" {
 		t.Errorf("prefix = %q, want %q", CategoryPrefix("conventions"), "conv")
+	}
+	if CategoryPrefix("workflows") != "wf" {
+		t.Errorf("prefix = %q, want %q", CategoryPrefix("workflows"), "wf")
+	}
+	for _, cat := range ValidCategories() {
+		if CategoryPrefix(cat) == "" {
+			t.Errorf("category %q has no ID prefix", cat)
+		}
 	}
 }
 

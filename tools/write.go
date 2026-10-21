@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/renderorange/knowledge-mcp/knowledge"
@@ -28,7 +29,8 @@ func WriteHandler(res *projects.Resolver, idx *search.Index) func(context.Contex
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		if !knowledge.IsValidCategory(category) {
-			return mcp.NewToolResultError(fmt.Sprintf("invalid category: %q (must be conventions, subsystems, or decisions)", category)), nil
+			return mcp.NewToolResultError(fmt.Sprintf(
+				"invalid category: %q (must be %s)", category, strings.Join(knowledge.ValidCategories(), ", "))), nil
 		}
 
 		summary, err := request.RequireString("summary")

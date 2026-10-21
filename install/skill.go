@@ -14,7 +14,7 @@ func RenderSkillMD(registry []tools.ToolSpec) []byte {
 	}
 	md := "---\n" +
 		"name: knowledge-mcp\n" +
-		"description: \"Use the persistent knowledge store for project conventions, subsystems, and decisions. Triggers on: what are our conventions, does this project have rules about, how does this subsystem work, why was this decision made, capture this decision, write that down as knowledge, update that entry, knowledge store, .agents, list_knowledge, query_knowledge, write_knowledge, update_knowledge, init_knowledge.\"\n" +
+		"description: \"Use the persistent knowledge store for project conventions, subsystems, decisions, and workflows. Triggers on: what are our conventions, does this project have rules about, how does this subsystem work, why was this decision made, run the brainstorm workflow, run the plan workflow, debug workflow, verify workflow, capture this decision, write that down as knowledge, update that entry, knowledge store, .agents, list_knowledge, query_knowledge, write_knowledge, update_knowledge, init_knowledge.\"\n" +
 		"---\n" +
 		"\n" +
 		"# Knowledge Store (knowledge-mcp)\n" +
