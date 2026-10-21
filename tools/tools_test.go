@@ -130,6 +130,58 @@ func TestWriteHandler(t *testing.T) {
 	}
 }
 
+func TestWriteHandlerWorkflowsCategory(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "test")
+	agentsDir := filepath.Join(dir, ".agents")
+	knowledge.EnsureDir(agentsDir)
+
+	idx, _ := search.NewIndex()
+	defer idx.Close()
+
+	resolver, _, err := projects.Build([]string{root}, nil, "")
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
+
+	handler := WriteHandler(resolver, idx)
+
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{
+		"project":  "test",
+		"category": "workflows",
+		"summary":  "Brainstorm before building",
+		"detail":   "Ask one question at a time and play back what you heard.",
+		"source":   "test",
+		"rule":     "Do not build until the user approves the description",
+	}
+
+	result, err := handler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("WriteHandler() error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("WriteHandler() returned nil")
+	}
+	if result.IsError {
+		t.Fatal("WriteHandler() returned an error result for the workflows category")
+	}
+
+	loaded, loadErr := knowledge.Load(knowledge.CategoryFilePath(agentsDir, "workflows"))
+	if loadErr != nil {
+		t.Fatalf("Load() error: %v", loadErr)
+	}
+	if len(loaded.Entries) != 1 {
+		t.Fatalf("len(Entries) = %d, want 1", len(loaded.Entries))
+	}
+	if loaded.Entries[0].ID != "wf-001" {
+		t.Errorf("ID = %q, want %q", loaded.Entries[0].ID, "wf-001")
+	}
+	if loaded.Entries[0].Rule == "" {
+		t.Error("Rule should not be empty")
+	}
+}
+
 func TestWriteHandlerValidation(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "test")

@@ -26,7 +26,8 @@ func ListHandler(res *projects.Resolver, idx *search.Index) func(context.Context
 
 		filterCategory := request.GetString("category", "")
 		if filterCategory != "" && !knowledge.IsValidCategory(filterCategory) {
-			return mcp.NewToolResultError(fmt.Sprintf("invalid category: %q (must be conventions, subsystems, or decisions)", filterCategory)), nil
+			return mcp.NewToolResultError(fmt.Sprintf(
+				"invalid category: %q (must be %s)", filterCategory, strings.Join(knowledge.ValidCategories(), ", "))), nil
 		}
 
 		output := ""

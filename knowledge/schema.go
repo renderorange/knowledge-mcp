@@ -38,7 +38,7 @@ func Today() string {
 
 // ValidCategories returns the set of valid category names.
 func ValidCategories() []string {
-	return []string{"conventions", "subsystems", "decisions"}
+	return []string{"conventions", "subsystems", "decisions", "workflows"}
 }
 
 // CategoryPrefix maps category names to their ID prefixes.
@@ -50,6 +50,8 @@ func CategoryPrefix(category string) string {
 		return "sub"
 	case "decisions":
 		return "dec"
+	case "workflows":
+		return "wf"
 	default:
 		return ""
 	}

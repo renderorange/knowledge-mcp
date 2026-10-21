@@ -232,6 +232,7 @@ Entries are stored in `<project>/.agents/<category>.yaml`:
 - `conventions.yaml` — patterns, naming, build commands
 - `subsystems.yaml` — how things work
 - `decisions.yaml` — why choices were made
+- `workflows.yaml` — procedures the agent runs on demand (brainstorm, plan, debug, verify)
 - `_meta.yaml` — project metadata
 
 Category files use a `project:`/`version:`/`entries:` wrapper — a bare YAML
