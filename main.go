@@ -187,11 +187,12 @@ func registerTools(s *server.MCPServer, handlerMap map[string]server.ToolHandler
 // buildHandlers wires the tools package handlers to the resolver/index.
 func buildHandlers(res *projects.Resolver, idx *search.Index, orgMode bool) map[string]server.ToolHandlerFunc {
 	h := map[string]server.ToolHandlerFunc{
-		tools.ToolInitKnowledge:   tools.InitHandler(res),
-		tools.ToolWriteKnowledge:  tools.WriteHandler(res, idx),
-		tools.ToolQueryKnowledge:  tools.QueryHandler(res, idx),
-		tools.ToolListKnowledge:   tools.ListHandler(res, idx),
-		tools.ToolUpdateKnowledge: tools.UpdateHandler(res, idx),
+		tools.ToolInitKnowledge:    tools.InitHandler(res),
+		tools.ToolWriteKnowledge:   tools.WriteHandler(res, idx),
+		tools.ToolQueryKnowledge:   tools.QueryHandler(res, idx),
+		tools.ToolListKnowledge:    tools.ListHandler(res, idx),
+		tools.ToolUpdateKnowledge:  tools.UpdateHandler(res, idx),
+		tools.ToolReindexKnowledge: tools.ReindexHandler(idx),
 	}
 	if orgMode {
 		h[tools.ToolListProjects] = tools.ListProjectsHandler(res)

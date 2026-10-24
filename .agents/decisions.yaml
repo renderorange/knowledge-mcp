@@ -2,7 +2,7 @@ project: knowledge-mcp
 version: 1
 entries:
     - id: dec-001
-      summary: "Org-level knowledge is indexed per markdown section, not as whole files"
+      summary: Org-level knowledge is indexed per markdown section, not as whole files
       detail: |-
         Whole-file indexing made org queries return 5-6K tokens of unrelated content (measured 2026-09-08: "daisy test-stability" on chaon-io returned full architecture.md and review.md).
         Split .agents/knowledge/*.md on "## " headings; each section is its own document with key org-<file>::<heading>.
@@ -11,7 +11,7 @@ entries:
       source: user-requested token-savings fix, 2026-09-08; GH-34 update, 2026-10-07
       date: "2026-10-07"
     - id: dec-002
-      summary: "Merged global entries carry explicit (global) provenance in list output"
+      summary: Merged global entries carry explicit (global) provenance in list output
       detail: |-
         list_knowledge for any non-global project prepends _global entries; previously they were indistinguishable from the project's own entries.
         Section headers now carry a " (global)" suffix; projects with no local entries get an explicit "no project-specific knowledge entries found" note.
@@ -19,7 +19,7 @@ entries:
       source: user-requested provenance fix, 2026-09-08
       date: "2026-09-08"
     - id: dec-003
-      summary: "Query text is escaped so special characters are always literal"
+      summary: Query text is escaped so special characters are always literal
       detail: |-
         User queries are plain text, not lucene syntax; characters like : ( ) && || " were previously interpreted as operators.
         escapeQueryString escapes syntax-active characters (context-aware for +/- and &&/||); mid-word hyphens like test-stability stay intact.
@@ -27,7 +27,7 @@ entries:
       source: user-requested robustness fix, 2026-09-08
       date: "2026-09-08"
     - id: dec-004
-      summary: "Startup indexing: always built in memory (no skip flag)"
+      summary: 'Startup indexing: always built in memory (no skip flag)'
       detail: |-
         The former background-indexing flag --no-index-on-startup is now a deprecated no-op (accepted, warns, ignored).
         The index is always built in memory at startup; queries block on the ready channel until IndexAll completes.
@@ -35,3 +35,16 @@ entries:
         Recorded so a skip-indexing flag is not reintroduced.
       source: GH-34 memory-only index, 2026-10-07
       date: "2026-10-07"
+    - id: dec-005
+      summary: Stale index fixed by fingerprint auto-refresh plus a forced reindex tool
+      detail: |-
+        Issue #36: the index was built once at startup, so direct store edits were visible to list_knowledge but not query_knowledge, silently.
+        Chosen fix (user-approved): build-then-swap on staleness, plus an explicit reindex_knowledge tool.
+        Why not re-run IndexAll as-is: Add is an upsert keyed by project/id and bleve has no Delete wired up, so entries removed from the files would keep matching. A fresh index per rebuild drops them naturally.
+        Fingerprint = sha256 over each ref's address/kind and each source file's path, size and mtime; missing files are part of the stamp so creation and deletion both trigger a rebuild.
+        Query computes the fingerprint before searching and rebuilds under refreshMu; the swap takes the write lock so in-flight queries finish on the old index before it is closed.
+        Add does not update the fingerprint: the next query rebuilds after a tool write, which is slightly wasteful but cannot swallow a concurrent out-of-band change.
+        Org knowledge now indexes every top-level *.md in .agents/knowledge/ (shared helper knowledge.OrgKnowledgeFiles) instead of the architecture.md/review.md allowlist, in both the index and the Grep/Glob hook.
+        list_knowledge stays file-backed for projects and index-backed for orgs; with auto-refresh both are current.
+      source: 'issue #36 design discussion with user, 2026-10-23'
+      date: "2026-10-23"

@@ -2,19 +2,21 @@ project: knowledge-mcp
 version: 1
 entries:
     - id: sub-001
-      summary: "Search index: per-process in-memory bleve, scoped keys, org sections"
+      summary: 'Search index: in-memory bleve, auto-refresh on store edits, scoped keys'
       detail: |-
         The index is built in memory (bleve.NewMemOnly) at server startup from the store YAML/MD files — every restart re-indexes.
         There is no disk state, no index lock, and any number of instances may query concurrently.
+        A store fingerprint (per-file path, size, mtime) is recorded at build time; Query recomputes it and rebuilds into a fresh index when the files changed, so direct edits, git checkouts and migration scripts are searchable without a restart.
+        Rebuild is build-then-swap under an RWMutex: queries in flight finish on the old index, then it is closed. There is no Delete API, so deletes vanish only because the replacement index is built from scratch.
+        reindex_knowledge forces a rebuild; Refresh reports whether the fingerprint changed.
         Documents carry summary, detail, rule, category, project with scoped keys <project>/<entryID>.
-        Query results de-scope the ID.
-        Org-level docs (.agents/knowledge/*.md) are split on "## " headings with keys org-<file>::<heading>.
+        Query results de-scope the ID. Org-level docs: every top-level *.md in .agents/knowledge/ (knowledge.OrgKnowledgeFiles), split on "## " headings with keys org-<file>::<heading>.
         User query text is escaped (escapeQueryString) so special characters are literal, never lucene syntax.
         --index and --no-index-on-startup are accepted warning-logged no-ops.
       source: GH-34 memory-only index, 2026-10-07
-      date: "2026-10-07"
+      date: "2026-10-23"
     - id: sub-002
-      summary: "Project resolver: kinds, addressing, dynamic fallback"
+      summary: 'Project resolver: kinds, addressing, dynamic fallback'
       detail: |-
         projects/resolver.go builds refs: KindProject (has .agents/ yaml), KindOrg (root with .agents/knowledge/), KindGlobal (--global path, addressed _global).
         Roots scan immediate children only, skipping .agents and .git; symlinks followed; unreadable entries warn.
@@ -23,7 +25,7 @@ entries:
       source: code review, 2026-09-08; GH-34 update, 2026-10-07
       date: "2026-10-07"
     - id: sub-003
-      summary: "Knowledge store: atomic writes, per-file locks, entry lifecycle"
+      summary: 'Knowledge store: atomic writes, per-file locks, entry lifecycle'
       detail: |-
         knowledge/store.go: Save writes temp file, fsyncs, renames (atomic); LoadOrCreate returns empty KnowledgeFile when missing.
         tools package keeps per-path RWMutexes (fileLocks) around read-modify-write cycles; write/update lock, list takes RLock.
@@ -34,7 +36,7 @@ entries:
       source: code review, 2026-09-08
       date: "2026-09-08"
     - id: sub-004
-      summary: "Startup indexing: always-on background kick, no skip flag"
+      summary: 'Startup indexing: always-on background kick, no skip flag'
       detail: |-
         IndexAll always runs in a background goroutine at startup (there is no skip flag).
         Queries block on the ready channel until IndexAll completes.

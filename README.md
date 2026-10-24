@@ -177,10 +177,14 @@ General notes:
 
 - Each `--root` discovers its immediate children as projects (one level deep — pass deeper directories as additional flags).
 - Duplicate project basenames across roots are addressed as `<root>/<project>` (e.g. `work/api`); `list_projects` shows which names need qualification.
-- `query_knowledge` accepts org root names to search that root's `.agents/knowledge/` files. Org-level documents are indexed **per `##` section**, so a query returns the matching section(s), not the entire file.
+- `query_knowledge` accepts org root names to search that root's `.agents/knowledge/` files. Every `.md` file in that directory is indexed (not a fixed filename allowlist), and documents are indexed **per `##` section**, so a query returns the matching section(s), not the entire file.
 - The search index is built **in memory** per server process at startup and
   does not survive a restart. There is no index on disk anywhere, no lock,
   and no contention — any number of instances may query concurrently.
+- The index notices out-of-band store edits (hand edits, `git checkout`,
+  migration scripts) and rebuilds itself before serving the next query, so
+  `query_knowledge` never silently disagrees with `list_knowledge`. Use
+  `reindex_knowledge` to force a full rebuild.
 - `--index <path>` is deprecated and ignored (the search index is in-memory).
 - Old leftover `.agents/.index/` and `<store>/.index/` directories and `$XDG_STATE_HOME/knowledge-mcp/` artifacts from earlier releases are inert and can be deleted.
 
@@ -222,6 +226,7 @@ arguments — entry bodies are replaced by sizes and never written. Set
 | `list_knowledge` | List all entries; entries with rules shown first as constraints |
 | `update_knowledge` | Update an existing entry by ID |
 | `list_projects` | List all discovered projects (org-wide mode only) |
+| `reindex_knowledge` | Rebuild the search index from the store files (queries also refresh automatically) |
 
 Queries are plain-text search with no operator syntax — special characters in queries are always treated as literal text.
 

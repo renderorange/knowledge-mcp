@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -116,6 +117,24 @@ func LoadOrCreate(filePath, project string) (*KnowledgeFile, error) {
 		return nil, err
 	}
 	return kf, nil
+}
+
+// OrgKnowledgeFiles returns the sorted names of the markdown files directly
+// under an org knowledge directory. Subdirectories are not walked.
+func OrgKnowledgeFiles(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".md") {
+			continue
+		}
+		files = append(files, entry.Name())
+	}
+	sort.Strings(files)
+	return files, nil
 }
 
 // SplitSections splits a knowledge markdown document on lines starting

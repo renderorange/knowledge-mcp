@@ -16,12 +16,13 @@ func categoryNames() string {
 // Tool name constants keep main.go, the registry, and generated
 // instructions in sync.
 const (
-	ToolInitKnowledge   = "init_knowledge"
-	ToolWriteKnowledge  = "write_knowledge"
-	ToolQueryKnowledge  = "query_knowledge"
-	ToolListKnowledge   = "list_knowledge"
-	ToolUpdateKnowledge = "update_knowledge"
-	ToolListProjects    = "list_projects"
+	ToolInitKnowledge    = "init_knowledge"
+	ToolWriteKnowledge   = "write_knowledge"
+	ToolQueryKnowledge   = "query_knowledge"
+	ToolListKnowledge    = "list_knowledge"
+	ToolUpdateKnowledge  = "update_knowledge"
+	ToolListProjects     = "list_projects"
+	ToolReindexKnowledge = "reindex_knowledge"
 )
 
 // ParamSpec describes one tool parameter.
@@ -95,6 +96,10 @@ var Registry = []ToolSpec{
 	{
 		Name: ToolListProjects, Purpose: "List all discovered projects (org-wide mode)",
 		Description: "List all discovered projects across configured roots",
+	},
+	{
+		Name: ToolReindexKnowledge, Purpose: "Rebuild the search index from store files",
+		Description: "Rebuild the in-memory search index from the knowledge store files. Queries refresh automatically when store files change; use this to force a full rebuild.",
 	},
 }
 

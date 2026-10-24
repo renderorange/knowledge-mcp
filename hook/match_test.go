@@ -105,6 +105,29 @@ func TestSearchIncludesOrgAndGlobal(t *testing.T) {
 	}
 }
 
+// TestSearchIncludesAdditionalOrgMarkdown covers the org knowledge glob:
+// every markdown file in .agents/knowledge/ is searched, not just the
+// historical architecture.md/review.md pair.
+func TestSearchIncludesAdditionalOrgMarkdown(t *testing.T) {
+	root := t.TempDir()
+	orgKnowledge := filepath.Join(root, ".agents", "knowledge")
+	if err := os.MkdirAll(orgKnowledge, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(orgKnowledge, "notes.md"),
+		[]byte("## Takedown\npurge_requested_at drives takedown\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res, _, err := projects.Build([]string{root}, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits := Search(res, nil, orgRef(t, res), "takedown", 3, nil)
+	if len(hits) != 1 || hits[0].ID != "org-notes.md::Takedown" {
+		t.Fatalf("hits = %+v", hits)
+	}
+}
+
 func orgRef(t *testing.T, res *projects.Resolver) *projects.Ref {
 	t.Helper()
 	for _, ref := range res.Snapshot() {
