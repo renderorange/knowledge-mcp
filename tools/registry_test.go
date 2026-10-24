@@ -6,6 +6,7 @@ func TestRegistryComplete(t *testing.T) {
 	want := map[string]bool{
 		"init_knowledge": true, "write_knowledge": true, "query_knowledge": true,
 		"list_knowledge": true, "update_knowledge": true, "list_projects": true,
+		"reindex_knowledge": true,
 	}
 	seen := map[string]bool{}
 	for _, spec := range Registry {

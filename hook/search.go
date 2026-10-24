@@ -45,14 +45,17 @@ func Search(res *projects.Resolver, proj, org *projects.Ref, pattern string, lim
 		}
 	}
 	if org != nil {
-		for _, file := range []string{"architecture.md", "review.md"} {
-			data, err := os.ReadFile(filepath.Join(res.OrgKnowledgeDir(*org), file))
-			if err != nil {
-				continue
-			}
-			files++
-			for _, sec := range knowledge.SplitSections(string(data)) {
-				addEntry(org.Address, "org-"+file+"::"+sec[0], file+": "+sec[0], sec[1], "")
+		names, err := knowledge.OrgKnowledgeFiles(res.OrgKnowledgeDir(*org))
+		if err == nil {
+			for _, file := range names {
+				data, readErr := os.ReadFile(filepath.Join(res.OrgKnowledgeDir(*org), file))
+				if readErr != nil {
+					continue
+				}
+				files++
+				for _, sec := range knowledge.SplitSections(string(data)) {
+					addEntry(org.Address, "org-"+file+"::"+sec[0], file+": "+sec[0], sec[1], "")
+				}
 			}
 		}
 	}

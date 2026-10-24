@@ -170,3 +170,38 @@ func TestEnsureDir(t *testing.T) {
 		t.Fatalf("EnsureDir() second call error: %v", err)
 	}
 }
+
+func TestOrgKnowledgeFiles(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"review.md", "architecture.md", "notes.md", "ignored.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("## Section\nbody\n"), 0644); err != nil {
+			t.Fatalf("WriteFile(%s) error: %v", name, err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(dir, "nested"), 0755); err != nil {
+		t.Fatalf("Mkdir() error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "nested", "deep.md"), []byte("## Deep\nbody\n"), 0644); err != nil {
+		t.Fatalf("WriteFile(nested) error: %v", err)
+	}
+
+	files, err := OrgKnowledgeFiles(dir)
+	if err != nil {
+		t.Fatalf("OrgKnowledgeFiles() error: %v", err)
+	}
+	want := []string{"architecture.md", "notes.md", "review.md"}
+	if len(files) != len(want) {
+		t.Fatalf("OrgKnowledgeFiles() = %v, want %v", files, want)
+	}
+	for i := range want {
+		if files[i] != want[i] {
+			t.Errorf("files[%d] = %q, want %q", i, files[i], want[i])
+		}
+	}
+}
+
+func TestOrgKnowledgeFilesMissingDir(t *testing.T) {
+	if _, err := OrgKnowledgeFiles(filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Error("OrgKnowledgeFiles() on a missing directory should error")
+	}
+}
