@@ -20,13 +20,9 @@ func UpdateHandler(res *projects.Resolver, idx *search.Index) func(context.Conte
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		category, err := request.RequireString("category")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		if !knowledge.IsValidCategory(category) {
-			return mcp.NewToolResultError(fmt.Sprintf(
-				"invalid category: %q (must be %s)", category, strings.Join(knowledge.ValidCategories(), ", "))), nil
+		ref, resolveErr := res.Resolve(project)
+		if resolveErr != nil {
+			return mcp.NewToolResultError(resolveErr.Error()), nil
 		}
 
 		id, err := request.RequireString("id")
@@ -34,33 +30,24 @@ func UpdateHandler(res *projects.Resolver, idx *search.Index) func(context.Conte
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		ref, resolveErr := res.Resolve(project)
-		if resolveErr != nil {
-			return mcp.NewToolResultError(resolveErr.Error()), nil
-		}
-		if ref.Kind == projects.KindOrg {
-			return mcp.NewToolResultError(fmt.Sprintf(
-				"%q is an org root; org-level knowledge is file-based — edit %s directly",
-				project, res.OrgKnowledgeDir(ref))), nil
-		}
-
-		agentsDir := res.AgentsDir(ref)
-		catPath := knowledge.CategoryFilePath(agentsDir, category)
-
-		mu := fileLocks.Get(catPath)
-		mu.Lock()
-		defer mu.Unlock()
-
-		kf, loadErr := knowledge.Load(catPath)
-		if loadErr != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("load knowledge file: %v", loadErr)), nil
-		}
-
 		// Collect optional fields
 		newSummary := request.GetString("summary", "")
 		newDetail := request.GetString("detail", "")
 		newRule := request.GetString("rule", "")
 		newSupersedes := request.GetString("supersedes", "")
+
+		if ref.Kind == projects.KindOrg {
+			return updateOrgSection(res, ref, id, newSummary, newDetail, newRule, newSupersedes), nil
+		}
+
+		category := request.GetString("category", "")
+		if category == "" {
+			return mcp.NewToolResultError("category is required for project stores"), nil
+		}
+		if !knowledge.IsValidCategory(category) {
+			return mcp.NewToolResultError(fmt.Sprintf(
+				"invalid category: %q (must be %s)", category, strings.Join(knowledge.ValidCategories(), ", "))), nil
+		}
 
 		// Validate optional fields before applying
 		if newSummary != "" && len(newSummary) > 100 {
@@ -76,6 +63,18 @@ func UpdateHandler(res *projects.Resolver, idx *search.Index) func(context.Conte
 		// Reject no-op updates
 		if newSummary == "" && newDetail == "" && newRule == "" && newSupersedes == "" {
 			return mcp.NewToolResultError("no fields to update (provide summary, detail, rule, or supersedes)"), nil
+		}
+
+		agentsDir := res.AgentsDir(ref)
+		catPath := knowledge.CategoryFilePath(agentsDir, category)
+
+		mu := fileLocks.Get(catPath)
+		mu.Lock()
+		defer mu.Unlock()
+
+		kf, loadErr := knowledge.Load(catPath)
+		if loadErr != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("load knowledge file: %v", loadErr)), nil
 		}
 
 		// Validate supersedes references an existing ID in the same category

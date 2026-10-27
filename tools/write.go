@@ -24,13 +24,22 @@ func WriteHandler(res *projects.Resolver, idx *search.Index) func(context.Contex
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		category, err := request.RequireString("category")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		ref, resolveErr := res.Resolve(project)
+		if resolveErr != nil {
+			return mcp.NewToolResultError(resolveErr.Error()), nil
 		}
-		if !knowledge.IsValidCategory(category) {
-			return mcp.NewToolResultError(fmt.Sprintf(
-				"invalid category: %q (must be %s)", category, strings.Join(knowledge.ValidCategories(), ", "))), nil
+
+		// Org roots index markdown sections rather than category YAML files,
+		// so category is only meaningful for project stores.
+		category := request.GetString("category", "")
+		if ref.Kind != projects.KindOrg {
+			if category == "" {
+				return mcp.NewToolResultError("category is required for project stores"), nil
+			}
+			if !knowledge.IsValidCategory(category) {
+				return mcp.NewToolResultError(fmt.Sprintf(
+					"invalid category: %q (must be %s)", category, strings.Join(knowledge.ValidCategories(), ", "))), nil
+			}
 		}
 
 		summary, err := request.RequireString("summary")
@@ -39,6 +48,9 @@ func WriteHandler(res *projects.Resolver, idx *search.Index) func(context.Contex
 		}
 		if len(summary) > 100 {
 			return mcp.NewToolResultError(fmt.Sprintf("summary too long: %d chars (max 100)", len(summary))), nil
+		}
+		if ref.Kind == projects.KindOrg && strings.ContainsAny(summary, "\r\n") {
+			return mcp.NewToolResultError("summary must be a single line for org sections"), nil
 		}
 
 		detail, err := request.RequireString("detail")
@@ -59,14 +71,9 @@ func WriteHandler(res *projects.Resolver, idx *search.Index) func(context.Contex
 			return mcp.NewToolResultError(fmt.Sprintf("rule too long: %d chars (max 200)", len(rule))), nil
 		}
 
-		ref, resolveErr := res.Resolve(project)
-		if resolveErr != nil {
-			return mcp.NewToolResultError(resolveErr.Error()), nil
-		}
 		if ref.Kind == projects.KindOrg {
-			return mcp.NewToolResultError(fmt.Sprintf(
-				"%q is an org root; org-level knowledge is file-based — edit %s directly",
-				project, res.OrgKnowledgeDir(ref))), nil
+			file := request.GetString("file", "")
+			return writeOrgSection(res, ref, project, file, summary, detail, source, rule), nil
 		}
 
 		agentsDir := res.AgentsDir(ref)
