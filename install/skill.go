@@ -37,6 +37,7 @@ func RenderSkillMD(registry []tools.ToolSpec) []byte {
 		"## Capture workflow\n" +
 		"\n" +
 		"- write_knowledge when a convention, subsystem fact, or decision is established.\n" +
+		"- On an org root, pass file=<name>.md: summary is the section heading and detail the body.\n" +
 		"- detail: 10-20 lines of query-able facts; never copy source files.\n" +
 		"- source: record how the knowledge was learned.\n" +
 		"- rule field: an imperative prohibition/requirement (surfaced first in lists).\n" +

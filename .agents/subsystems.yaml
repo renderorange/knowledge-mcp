@@ -27,14 +27,17 @@ entries:
     - id: sub-003
       summary: 'Knowledge store: atomic writes, per-file locks, entry lifecycle'
       detail: |-
-        knowledge/store.go: Save writes temp file, fsyncs, renames (atomic); LoadOrCreate returns empty KnowledgeFile when missing.
+        knowledge/store.go: Save writes YAML via temp file, fsync, rename (atomic); LoadOrCreate returns an empty KnowledgeFile when missing; SaveText does the same for org markdown.
         tools package keeps per-path RWMutexes (fileLocks) around read-modify-write cycles; write/update lock, list takes RLock.
         NextID scans existing IDs for the category prefix and returns the next sequential ID.
-        write_knowledge validates category, summary <=100 chars, detail <=1MB, rule <=200 chars; org roots reject writes (file-based knowledge only).
-        update_knowledge validates supersedes references an existing ID in the same category and rejects no-op updates.
+        write_knowledge validates summary <=100 chars, detail <=1MB, rule <=200 chars. category is required for project stores and ignored on org roots.
+        Org root write: file is required (bare *.md, no directories; missing file lists available names; a new name creates the file), summary is the ## heading, detail the body, source becomes a trailing Source: line, rule is rejected, and a heading collision points at update_knowledge. knowledge.AppendOrgSection/SaveText run under fileLocks.
+        update_knowledge on an org root takes id org-<file>::<heading>; only detail applies, the heading is immutable, the trailing Source: line is preserved, and the file must already exist. knowledge.ReplaceOrgSection rewrites just that section.
+        OrgKnowledgeFiles returns sorted top-level *.md names and skips directories, broken symlinks, and other non-regular files (symlinks to regular files are followed).
+        update_knowledge validates supersedes references an existing ID in the same category and rejects no-op updates for project stores.
         Rules surface as a constraints section in list_knowledge output, above regular entries.
       source: code review, 2026-09-08
-      date: "2026-09-08"
+      date: "2026-10-26"
     - id: sub-004
       summary: 'Startup indexing: always-on background kick, no skip flag'
       detail: |-

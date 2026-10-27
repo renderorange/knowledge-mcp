@@ -221,10 +221,10 @@ arguments — entry bodies are replaced by sizes and never written. Set
 | Tool | Description |
 |------|-------------|
 | `init_knowledge` | Create a project's knowledge directory structure (central store under `--store`) |
-| `write_knowledge` | Add a new knowledge entry |
+| `write_knowledge` | Add a knowledge entry, or an org markdown section with `file` |
 | `query_knowledge` | Full-text search with category filters |
 | `list_knowledge` | List all entries; entries with rules shown first as constraints |
-| `update_knowledge` | Update an existing entry by ID |
+| `update_knowledge` | Update an entry by ID, or an org section body |
 | `list_projects` | List all discovered projects (org-wide mode only) |
 | `reindex_knowledge` | Rebuild the search index from the store files (queries also refresh automatically) |
 
@@ -244,6 +244,23 @@ Category files use a `project:`/`version:`/`entries:` wrapper — a bare YAML
 list parses as zero entries. `list_knowledge` marks entries merged from a
 shared global store with a `(global)` suffix so they are never mistaken for
 the project's own entries.
+
+### Org Markdown Files
+
+Org roots keep knowledge as markdown in `<org>/.agents/knowledge/*.md`,
+indexed per `##` section.
+
+- `write_knowledge` on an org root requires `file` (for example
+  `dsp-verification.md`). `summary` becomes the `##` heading, `detail` the
+  section body, and `source` is folded in as a final `Source:` line. Omit
+  `file` to get the available files; a bare new `*.md` name creates it.
+- `update_knowledge` on an org root takes the id
+  `org-<file>::<heading>` and only applies `detail`. The heading is preserved
+  and the trailing `Source:` line is carried over.
+- A heading collision is rejected with the matching `update_knowledge` id
+  rather than merged. `rule` and `supersedes` do not apply to sections.
+- Writes are atomic (temp file + fsync + rename) and take the same per-file
+  lock as YAML stores. Queries see them through the index fingerprint.
 
 ### Rules / Constraints
 

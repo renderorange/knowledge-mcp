@@ -131,6 +131,12 @@ func OrgKnowledgeFiles(dir string) ([]string, error) {
 		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".md") {
 			continue
 		}
+		// Follow symlinks but index only regular files: broken links,
+		// directories and special files are skipped.
+		info, err := os.Stat(filepath.Join(dir, entry.Name()))
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
 		files = append(files, entry.Name())
 	}
 	sort.Strings(files)

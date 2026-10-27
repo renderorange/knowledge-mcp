@@ -48,3 +48,17 @@ entries:
         list_knowledge stays file-backed for projects and index-backed for orgs; with auto-refresh both are current.
       source: 'issue #36 design discussion with user, 2026-10-23'
       date: "2026-10-23"
+    - id: dec-006
+      summary: 'Org writes: markdown sections through write/update with a file argument'
+      detail: |-
+        Issue #40 part 2: org roots (KindOrg) accepted queries but rejected writes, so org knowledge was hand-maintained and drifted.
+        Chosen shape (user-approved): write_knowledge gains an optional file argument; on an org root summary becomes the ## heading and detail the section body, appended to <org>/.agents/knowledge/<file>.
+        file must be a bare .md filename: no separators, no traversal, no '::' (the id delimiter), non-empty stem. A missing file name returns the available files; a valid new name creates the file. No guessing.
+        source is folded into the section as a final 'Source: ...' line. update_knowledge on org parses id org-<file>::<heading> (the id shape query_knowledge already returns), applies only detail, keeps the heading immutable, and carries the old Source line forward.
+        Decisions from the issue's open questions: rule is rejected for org sections (fold constraints into detail); heading collisions are rejected with the matching update id instead of merged or duplicated; summary on org update is rejected because headings are part of the id.
+        category is now schema-optional and required only for project stores; org sections all index as conventions. The handler resolves the ref before validating category so org writes need not pass it.
+        Writes are atomic via knowledge.SaveText (temp + fsync + rename) under the existing per-path fileLocks. No idx.Add is needed: the GH-36 store fingerprint notices the new mtime and Query rebuilds.
+        Part 1 of the issue (only architecture.md/review.md indexed) was already fixed by GH-36/PR #39; this change only hardened OrgKnowledgeFiles to require regular files.
+        Tests: knowledge/org_test.go (append/replace/body/save/regular-file filtering), tools/org_test.go (write+query+list, missing file, no files, rule rejection, filename validation, collision, project category requirement, update semantics, invalid ids).
+      source: 'GitHub issue #40 implementation, 2026-10-26'
+      date: "2026-10-26"
