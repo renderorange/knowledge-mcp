@@ -77,3 +77,44 @@ func TestQueryDynamicProjectReportsCorruptFile(t *testing.T) {
 		t.Errorf("absence from an unreadable store must be an error result, got a success:\n%s", text)
 	}
 }
+
+// A project already in the startup snapshot is served by the shared index.
+// The scoped path rebuilds from disk, which is not worth paying per query, so
+// the fast path must not count a scoped build for a known project.
+func TestQueryKnownProjectDoesNotRebuildScoped(t *testing.T) {
+	root := t.TempDir()
+	agents := filepath.Join(root, "proj", ".agents")
+	if err := knowledge.EnsureDir(agents); err != nil {
+		t.Fatalf("EnsureDir() error: %v", err)
+	}
+	resolver, _, err := projects.Build([]string{root}, nil, "")
+	if err != nil {
+		t.Fatalf("projects.Build() error: %v", err)
+	}
+
+	idx, err := search.NewIndex()
+	if err != nil {
+		t.Fatalf("search.NewIndex() error: %v", err)
+	}
+	go idx.IndexAll(resolver)
+	idx.WaitReady()
+	defer idx.Close()
+
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]interface{}{
+		"project": "proj",
+		"query":   "anything",
+	}
+	result, err := QueryHandler(resolver, idx)(context.Background(), req)
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	text := extractTextContent(t, result)
+	if result.IsError {
+		t.Errorf("known empty project must not error:\n%s", text)
+	}
+
+	if got := idx.ScopedBuilds(); got != 0 {
+		t.Errorf("known project triggered %d scoped rebuilds, want 0", got)
+	}
+}

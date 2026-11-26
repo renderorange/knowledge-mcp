@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/mapping"
@@ -62,6 +63,7 @@ type Index struct {
 	resolver     *projects.Resolver
 	fingerprint  string        // store-file stamp the current index was built from
 	loadFailures []LoadFailure // files that failed to load during the last build
+	scopedBuilds atomic.Int64  // counts RefreshFor builds (test instrumentation)
 }
 
 // NewIndex creates a new in-memory bleve index.
@@ -226,6 +228,12 @@ func (i *Index) LoadFailures() []LoadFailure {
 	return out
 }
 
+// ScopedBuilds reports how many RefreshFor builds have been performed. Test
+// instrumentation: known projects must never pay the per-query scoped rebuild.
+func (i *Index) ScopedBuilds() int64 {
+	return i.scopedBuilds.Load()
+}
+
 // RefreshFor returns an index built from the resolver's stores plus the given
 // refs, for queries against projects the startup snapshot does not contain.
 //
@@ -245,6 +253,8 @@ func (i *Index) RefreshFor(refs []projects.Ref) (*Index, error) {
 		// the caller gets the index it already has.
 		return i, nil
 	}
+
+	i.scopedBuilds.Add(1)
 
 	fresh, failures, err := buildIndexFor(res, refs)
 	if err != nil {
