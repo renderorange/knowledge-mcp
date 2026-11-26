@@ -391,3 +391,93 @@ func TestRunDoctorBriefSilentForDevVersion(t *testing.T) {
 		t.Errorf("brief mode printed for an unknown version:\n%q", out)
 	}
 }
+
+func TestIsBehindNumericComparison(t *testing.T) {
+	// Segments compare numerically, not as bytes: 1.7.10 > 1.7.9.
+	cases := []struct {
+		installed, latest string
+		want              bool
+	}{
+		{"v1.7.0", "v1.7.1", true},    // ordinary behind
+		{"v1.7.2", "v1.7.1", false},   // ahead is not behind
+		{"v1.7.1", "v1.7.1", false},   // equal
+		{"v1.7.10", "v1.7.9", false},  // numeric, not byte, comparison
+		{"1.7.9", "1.7.10", true},     // no v prefix
+		{"dev", "v1.7.2", false},      // unknown version never behind
+		{"v1.7.2", "dev", false},      // unknown latest never behind
+		{"v1.7", "v1.7.1", true},      // missing segments count as 0
+		{"v2.0.0", "v1.99.99", false}, // major wins
+	}
+	for _, c := range cases {
+		if got := isBehind(c.installed, c.latest); got != c.want {
+			t.Errorf("isBehind(%q, %q) = %v, want %v", c.installed, c.latest, got, c.want)
+		}
+	}
+}
+
+func TestRunDoctorBriefSilentWhenAhead(t *testing.T) {
+	// A binary newer than the cached latest is ahead, never "behind": a
+	// stale-yet-fresh cache written by an older binary (learned before this
+	// release existed) must not make --brief announce a downgrade. The cache
+	// is not trusted for a different binary version, so the outgoing check
+	// runs and reports the real (current) latest, and the line stays silent.
+	isolateCache(t)
+	checked := false
+	oldFn := checkUpdateFn
+	checkUpdateFn = func(client update.Client, version string) (string, error) {
+		checked = true
+		return "v1.7.2", nil // the network knows the release this binary is
+	}
+	defer func() { checkUpdateFn = oldFn }()
+
+	// A cache that is fresh (within TTL) but was written by an *older*
+	// binary (v1.7.1) that learned "latest v1.7.1".
+	if err := update.WriteCache(update.State{
+		BinaryVersion: "v1.7.1",
+		LatestTag:     "v1.7.1",
+		CheckedAt:     time.Now(),
+	}); err != nil {
+		t.Fatalf("WriteCache() error: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		if code := RunDoctor([]string{"--brief", "--check-updates"}, "v1.7.2"); code != 0 {
+			t.Errorf("RunDoctor() = %d, want 0", code)
+		}
+	})
+	if strings.TrimSpace(out) != "" {
+		t.Errorf("brief mode announced a downgrade for an ahead install:\n%q", out)
+	}
+	if !checked {
+		t.Error("cache written by an older binary must not be trusted; expected a re-check")
+	}
+}
+
+func TestRunDoctorBriefUsesFreshCacheForSameVersion(t *testing.T) {
+	// A fresh cache written by *this* binary version is honored: no network
+	// call, and the cached latest drives the line.
+	isolateCache(t)
+	oldFn := checkUpdateFn
+	checkUpdateFn = func(client update.Client, version string) (string, error) {
+		t.Error("same-version fresh cache must not trigger a re-check")
+		return "", nil
+	}
+	defer func() { checkUpdateFn = oldFn }()
+
+	if err := update.WriteCache(update.State{
+		BinaryVersion: "v1.7.1",
+		LatestTag:     "v1.7.2",
+		CheckedAt:     time.Now(),
+	}); err != nil {
+		t.Fatalf("WriteCache() error: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		if code := RunDoctor([]string{"--brief", "--check-updates"}, "v1.7.1"); code != 0 {
+			t.Errorf("RunDoctor() = %d, want 0", code)
+		}
+	})
+	if !strings.Contains(out, "v1.7.1->v1.7.2") {
+		t.Errorf("cached latest not reported:\n%q", out)
+	}
+}
