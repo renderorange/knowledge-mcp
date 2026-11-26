@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -350,30 +351,62 @@ func updateFinding(version string) Finding {
 	return Finding{Level: "ok", Name: "update.current", Detail: "installed binary is current"}
 }
 
-// latestRelease returns the newest release tag, preferring a fresh cache.
-// When the cache is absent or stale it checks the network and refreshes the
-// cache on success. A fresh cache needs no network at all.
+// latestRelease returns the newest release tag, preferring a fresh cache that
+// was written for this exact binary version. A cache written by an older (or
+// newer) binary is stale for this one: version skew means its "latest" was
+// learned without the release that this binary is not — re-check.
 func latestRelease(version string) (string, error) {
-	if st, ok := update.ReadCache(); ok && st.LatestTag != "" {
+	if st, ok := update.ReadCache(); ok && st.BinaryVersion == version && st.LatestTag != "" {
 		return st.LatestTag, nil
 	}
 	return checkUpdateFn(updateHTTPClient, version)
 }
 
 // briefLine implements the statusline contract for --brief --check-updates:
-// exactly one line ("v1.7.0->v1.7.2") when behind, nothing when current,
-// unknown, or network-failed, and exit 0. The statusline relies on the empty
-// case to drop the segment, and supplies its own "kmcp" label, so the line is
-// the bare version arrow.
+// exactly one line ("v1.7.0->v1.7.2") when a newer release exists, nothing
+// when current, ahead, unknown, or network-failed, and exit 0. The statusline
+// relies on the empty case to drop the segment, and supplies its own "kmcp"
+// label, so the line is the bare version arrow.
 func briefLine(version string) (string, bool) {
 	latest, err := latestRelease(version)
 	if err != nil {
 		return "", false
 	}
-	embedded := normalizeVersion(version)
-	current := normalizeVersion(latest)
-	if embedded == "" || current == "" || embedded == current {
-		return "", false
+	if isBehind(version, latest) {
+		return fmt.Sprintf("%s->%s", version, latest), true
 	}
-	return fmt.Sprintf("%s->%s", version, latest), true
+	return "", false
+}
+
+// isBehind reports whether the installed version is strictly older than the
+// latest release. Plain string inequality is wrong here: v1.7.2 installed
+// against a v1.7.1-cached latest is ahead, not behind. Only digits and dots
+// are compared; a non-semver side (dev, a raw hash) is never behind.
+func isBehind(installed, latest string) bool {
+	iv := normalizeVersion(installed)
+	lv := normalizeVersion(latest)
+	if iv == "" || lv == "" || iv == lv {
+		return false
+	}
+	return versionLess(iv, lv)
+}
+
+// versionLess compares dotted numeric versions segment by segment: 1.7.10 >
+// 1.7.9 because the third segment compares numerically, which a byte compare
+// would get wrong. Missing segments count as 0, so "1.7" < "1.7.1".
+func versionLess(a, b string) bool {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(as) || i < len(bs); i++ {
+		var an, bn int64
+		if i < len(as) {
+			an, _ = strconv.ParseInt(as[i], 10, 64)
+		}
+		if i < len(bs) {
+			bn, _ = strconv.ParseInt(bs[i], 10, 64)
+		}
+		if an != bn {
+			return an < bn
+		}
+	}
+	return false
 }
