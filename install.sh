@@ -55,9 +55,24 @@ else
   URL="https://github.com/${OWNER}/${REPO}/releases/latest/download/${BINARY}-${OS}-${ARCH}"
 fi
 
+# Resolution order (shared with scripts/install-dir.sh, GH-45): reuse the
+# existing install's directory when it is writable (upgrades land where the
+# running server already reads the binary), else the first writable $HOME/* or
+# /usr/local/bin directory on PATH, else ~/.local/bin.
 install_dir() {
   local dir
+  local existing
   local saved_ifs="$IFS"
+
+  existing="$(command -v "${BINARY}" 2>/dev/null || true)"
+  if [[ -n "$existing" ]]; then
+    dir="$(dirname "$existing")"
+    if [[ -w "$dir" ]]; then
+      printf '%s' "$dir"
+      return 0
+    fi
+  fi
+
   IFS=: read -r -a path_entries <<< "${PATH:-}"
   IFS="$saved_ifs"
   for dir in "${path_entries[@]}"; do

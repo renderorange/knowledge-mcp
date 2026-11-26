@@ -32,7 +32,10 @@ clean:
 	rm -rf dist/
 
 install:
-	go install $(GOFLAGS) .
+	@dir="$$(./scripts/install-dir.sh)"; \
+	echo "installing $(BINARY) to $$dir/$(BINARY)"; \
+	go build $(GOFLAGS) -o "$(BINARY)" . && \
+	install -m 755 "$(BINARY)" "$$dir/$(BINARY)"
 
 lint:
 	@if command -v golangci-lint >/dev/null 2>&1; then \
