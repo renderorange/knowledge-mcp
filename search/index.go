@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/blevesearch/bleve/v2"
 	"github.com/blevesearch/bleve/v2/mapping"
@@ -62,6 +63,7 @@ type Index struct {
 	resolver     *projects.Resolver
 	fingerprint  string        // store-file stamp the current index was built from
 	loadFailures []LoadFailure // files that failed to load during the last build
+	scopedBuilds atomic.Int64  // counts RefreshFor builds (test instrumentation)
 }
 
 // NewIndex creates a new in-memory bleve index.
@@ -226,6 +228,50 @@ func (i *Index) LoadFailures() []LoadFailure {
 	return out
 }
 
+// ScopedBuilds reports how many RefreshFor builds have been performed. Test
+// instrumentation: known projects must never pay the per-query scoped rebuild.
+func (i *Index) ScopedBuilds() int64 {
+	return i.scopedBuilds.Load()
+}
+
+// RefreshFor returns an index built from the resolver's stores plus the given
+// refs, for queries against projects the startup snapshot does not contain.
+//
+// It clones rather than mutating the shared index. Only a few addresses (the
+// queried project, the global store) belong in the result set, and rebuilding
+// the live index on every differently-addressed query would both cost more and
+// widen what every other query can see.
+func (i *Index) RefreshFor(refs []projects.Ref) (*Index, error) {
+	<-i.ready
+
+	i.mu.RLock()
+	res := i.resolver
+	i.mu.RUnlock()
+	if res == nil {
+		// An index with no resolver was populated directly (tests, or a caller
+		// that adds documents by hand). Nothing can be rebuilt from disk, so
+		// the caller gets the index it already has.
+		return i, nil
+	}
+
+	i.scopedBuilds.Add(1)
+
+	fresh, failures, err := buildIndexFor(res, refs)
+	if err != nil {
+		return nil, err
+	}
+
+	clone := &Index{
+		index:        fresh,
+		ready:        make(chan struct{}),
+		resolver:     nil, // a scoped clone has no store fingerprint to track
+		loadFailures: failures,
+	}
+	// The clone is fully built above; Query blocks on ready until it is closed.
+	clone.CloseReady()
+	return clone, nil
+}
+
 // Refresh rebuilds the index when the store files changed since the last
 // build. It reports whether a rebuild happened. The unchanged case takes no
 // rebuild lock, so concurrent queries are not serialized by the check.
@@ -322,6 +368,12 @@ func (i *Index) IndexAll(res *projects.Resolver) {
 // also returns every source file it could not read or parse, because a store
 // that fails to load must not look like a store with nothing in it.
 func buildIndex(res *projects.Resolver) (bleve.Index, []LoadFailure, error) {
+	return buildIndexFor(res, nil)
+}
+
+// buildIndexFor builds the index from the resolver's snapshot plus any extra
+// refs that resolved dynamically.
+func buildIndexFor(res *projects.Resolver, extra []projects.Ref) (bleve.Index, []LoadFailure, error) {
 	idx, err := bleve.NewMemOnly(indexMapping())
 	if err != nil {
 		return nil, nil, fmt.Errorf("create in-memory index: %w", err)
@@ -329,6 +381,14 @@ func buildIndex(res *projects.Resolver) (bleve.Index, []LoadFailure, error) {
 
 	var failures []LoadFailure
 	for _, ref := range res.Snapshot() {
+		switch ref.Kind {
+		case projects.KindOrg:
+			failures = append(failures, indexOrgKnowledge(idx, res.OrgKnowledgeDir(ref), ref.Name)...)
+		default:
+			failures = append(failures, indexProjectKnowledge(idx, res.AgentsDir(ref), ref.Address)...)
+		}
+	}
+	for _, ref := range extra {
 		switch ref.Kind {
 		case projects.KindOrg:
 			failures = append(failures, indexOrgKnowledge(idx, res.OrgKnowledgeDir(ref), ref.Name)...)

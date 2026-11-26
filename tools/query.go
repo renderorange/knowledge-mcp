@@ -34,7 +34,30 @@ func QueryHandler(res *projects.Resolver, idx *search.Index) func(context.Contex
 				"invalid category: %q (must be %s)", category, strings.Join(knowledge.ValidCategories(), ", "))), nil
 		}
 
-		results, err := idx.Query(ref.Address, query, category, limit)
+		// The shared index is built from the startup snapshot. A project that
+		// resolved dynamically is not in it, so query a scoped clone that
+		// includes its store — otherwise a corrupt file inside it reads as a
+		// clean absence. Known projects use the shared index directly: the
+		// scoped path rebuilds from disk, which is not worth paying per query.
+		var scoped *search.Index
+		if !res.KnownAddresses()[ref.Address] {
+			cloned, scopedErr := idx.RefreshFor([]projects.Ref{ref})
+			if scopedErr != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("search error: %v", scopedErr)), nil
+			}
+			// RefreshFor returns the index itself when there is nothing to
+			// rebuild; closing that would close the shared index.
+			if cloned != idx {
+				defer cloned.Close()
+			}
+			scoped = cloned
+		}
+		target := idx
+		if scoped != nil {
+			target = scoped
+		}
+
+		results, err := target.Query(ref.Address, query, category, limit)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("search error: %v", err)), nil
 		}
@@ -52,7 +75,7 @@ func QueryHandler(res *projects.Resolver, idx *search.Index) func(context.Contex
 			}
 		}
 
-		failures := failuresFor(idx, scanned...)
+		failures := failuresFor(target, scanned...)
 
 		if len(results) == 0 {
 			// Absence from a store that only partly loaded is not absence.

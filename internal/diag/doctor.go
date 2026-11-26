@@ -5,12 +5,16 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/renderorange/knowledge-mcp/install"
+	"github.com/renderorange/knowledge-mcp/internal/update"
 	"github.com/renderorange/knowledge-mcp/projects"
 	"github.com/renderorange/knowledge-mcp/search"
 )
@@ -18,6 +22,18 @@ import (
 // ErrQueryBlocked is returned by watchdog when fn exceeds the deadline —
 // the slow-kick query-block detector.
 var ErrQueryBlocked = errors.New("query blocked: index never became ready")
+
+// updateHTTPClient is the network client used by --check-updates. It is a
+// package variable so tests can swap in a counting stub and prove that
+// without the flag no request is ever made.
+var updateHTTPClient update.Client = &http.Client{Timeout: update.RequestTimeout}
+
+// checkUpdateFn is the network path of --check-updates, swappable in tests.
+var checkUpdateFn = update.Check
+
+// osExecutable is os.Executable, swappable in tests (a fake binary inside a
+// temp git repo stands in for the real install).
+var osExecutable = os.Executable
 
 // doctorPaths collects repeatable path flags (mirror of main's pathList).
 type doctorPaths []string
@@ -50,6 +66,8 @@ func RunDoctor(args []string, version string) int {
 	noIndexOnStartup := fs.Bool("no-index-on-startup", false, "Deprecated: the index is always built at startup; accepted and ignored")
 	timeout := fs.Duration("timeout", 5*time.Second, "Self-query watchdog deadline")
 	logFile := fs.String("log-file", "", "Tee the report to this file")
+	checkUpdates := fs.Bool("check-updates", false, "Check the installed binary against the latest GitHub release (once per 24h)")
+	brief := fs.Bool("brief", false, "Print one line when --check-updates finds a newer release, nothing otherwise")
 	fs.Var(&roots, "root", "Org root whose immediate children are projects (repeatable)")
 	fs.Var(&projs, "project", "Single project root (repeatable)")
 	if err := fs.Parse(args); err != nil {
@@ -67,9 +85,36 @@ func RunDoctor(args []string, version string) int {
 		}
 	}
 
+	// --brief is the shell-prompt/statusline contract: no report at all, one
+	// line when --check-updates finds the binary behind, nothing otherwise,
+	// exit 0. It runs before every other check, so a bare
+	// "debug --brief --check-updates" without project flags still works.
+	if *brief {
+		if *checkUpdates {
+			if line, ok := briefLine(version); ok {
+				fmt.Fprintln(out, line)
+			}
+		}
+		return 0
+	}
+
 	var findings []Finding
 	add := func(level, name, detail string) {
 		findings = append(findings, Finding{level, name, detail})
+	}
+
+	// Version findings are always on: they read local files only, never the
+	// network.
+	exePath, exeErr := osExecutable()
+	for _, f := range versionFindings(exePath, exeErr, version) {
+		add(f.Level, f.Name, f.Detail)
+	}
+
+	// --check-updates is strictly opt-in: without the flag no outbound
+	// request is made, even with a warm cache.
+	if *checkUpdates {
+		outcome := updateFinding(version)
+		add(outcome.Level, outcome.Name, outcome.Detail)
 	}
 
 	fmt.Fprintf(out, "knowledge-mcp debug (version %s)\n\n", version)
@@ -147,6 +192,13 @@ func RunDoctor(args []string, version string) int {
 		fmt.Fprintf(out, "doc count: %d\n", count)
 	}
 
+	// store.load surfaces the files the index could not read or parse: a
+	// store that partly failed to load must not look like a store with
+	// nothing in it.
+	for _, failure := range idx.LoadFailures() {
+		add("warn", "store.load", fmt.Sprintf("%s: %s", failure.Path, failure.Err))
+	}
+
 	if rec, ok := install.LoadRecord(); ok {
 		fmt.Fprintf(out, "install record: %s\n", recordSummary(rec))
 	} else {
@@ -206,4 +258,122 @@ func recordSummary(rec install.Record) string {
 		parts = append(parts, "index="+rec.Index)
 	}
 	return strings.Join(parts, " ")
+}
+
+// versionFindings reports the binary's local identity and, when it can be
+// found in a git checkout, whether the embedded version matches the checkout's
+// describe string. Always on, no network.
+func versionFindings(exePath string, exeErr error, version string) []Finding {
+	var findings []Finding
+
+	if exeErr != nil {
+		findings = append(findings, Finding{
+			Level:  "warn",
+			Name:   "version.local",
+			Detail: fmt.Sprintf("can't locate executable: %v", exeErr),
+		})
+		return findings
+	}
+
+	detail := fmt.Sprintf("version=%s path=%s", version, exePath)
+	if info, err := os.Stat(exePath); err == nil {
+		detail += fmt.Sprintf(" mtime=%s", info.ModTime().Format(time.RFC3339))
+	}
+	findings = append(findings, Finding{Level: "ok", Name: "version.local", Detail: detail})
+
+	describe, err := gitDescribe(exePath)
+	if err != nil {
+		return findings // no checkout; nothing to compare
+	}
+
+	embedded, describeVersion := normalizeVersion(version), normalizeVersion(describe)
+	if embedded != "" && describeVersion != "" && embedded != describeVersion {
+		findings = append(findings, Finding{
+			Level:  "warn",
+			Name:   "version.skew",
+			Detail: fmt.Sprintf("installed %s, checkout %s -> stale", version, describe),
+		})
+	}
+	return findings
+}
+
+// normalizeVersion strips a leading "v" and any -dirty/-N-gHASH suffix so
+// "v1.7.1", "1.7.1-1-gabc123" and "v1.7.1-dirty" compare on the tag. A
+// string that does not look like a version (the build-time default "dev", a
+// raw git hash) normalizes to empty, so unknown versions are never reported
+// as behind anything.
+func normalizeVersion(v string) string {
+	v = strings.TrimPrefix(v, "v")
+	if i := strings.IndexByte(v, '-'); i >= 0 {
+		v = v[:i]
+	}
+	if v == "" || v[0] < '0' || v[0] > '9' {
+		return ""
+	}
+	return v
+}
+
+// gitDescribe finds the git checkout an executable lives in and returns its
+// git describe (e.g. "v1.7.1-1-gabc123"). It returns an error when the
+// executable is not in a checkout.
+func gitDescribe(exePath string) (string, error) {
+	dir := filepath.Dir(exePath)
+	cmd := exec.Command("git", "-C", dir, "describe", "--tags", "--always", "--dirty")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// updateFinding consults the latest release (through the cache when fresh)
+// and reports whether the installed binary is behind. Network failure or a
+// non-200 is a warn, never a fail, and never blocks.
+func updateFinding(version string) Finding {
+	latest, err := latestRelease(version)
+	if err != nil {
+		return Finding{
+			Level:  "warn",
+			Name:   "update.check",
+			Detail: fmt.Sprintf("could not check for updates: %v", err),
+		}
+	}
+	embedded := normalizeVersion(version)
+	current := normalizeVersion(latest)
+	if embedded != "" && current != "" && embedded != current {
+		return Finding{
+			Level:  "warn",
+			Name:   "update.available",
+			Detail: fmt.Sprintf("installed %s, latest %s", version, latest),
+		}
+	}
+	return Finding{Level: "ok", Name: "update.current", Detail: "installed binary is current"}
+}
+
+// latestRelease returns the newest release tag, preferring a fresh cache.
+// When the cache is absent or stale it checks the network and refreshes the
+// cache on success. A fresh cache needs no network at all.
+func latestRelease(version string) (string, error) {
+	if st, ok := update.ReadCache(); ok && st.LatestTag != "" {
+		return st.LatestTag, nil
+	}
+	return checkUpdateFn(updateHTTPClient, version)
+}
+
+// briefLine implements the statusline contract for --brief --check-updates:
+// exactly one line ("v1.7.0->v1.7.2") when behind, nothing when current,
+// unknown, or network-failed, and exit 0. The statusline relies on the empty
+// case to drop the segment, and supplies its own "kmcp" label, so the line is
+// the bare version arrow.
+func briefLine(version string) (string, bool) {
+	latest, err := latestRelease(version)
+	if err != nil {
+		return "", false
+	}
+	embedded := normalizeVersion(version)
+	current := normalizeVersion(latest)
+	if embedded == "" || current == "" || embedded == current {
+		return "", false
+	}
+	return fmt.Sprintf("%s->%s", version, latest), true
 }

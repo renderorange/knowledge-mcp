@@ -55,6 +55,16 @@ Check the version:
 ./knowledge-mcp --version
 ```
 
+`make install` builds and deploys the binary where the MCP config reads it —
+the same directory `install.sh` resolves: the existing install's directory
+when writable (so upgrades land in place, e.g. `/home/blaine/bin`), else the
+first writable `$HOME/*` or `/usr/local/bin` dir on `PATH`, else
+`~/.local/bin`. Both share `scripts/install-dir.sh`, so they can never
+disagree. It uses `install(1)` so it cannot fail with "Text file busy" while
+the server holds the old file. After installing, restart the server (only the
+client can): the running process keeps executing the old inode until it is
+respawned.
+
 ## Behavior evals
 
 `make eval-mock` runs the deterministic mock tier (no API key); `make eval` runs the

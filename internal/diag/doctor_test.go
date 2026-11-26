@@ -3,10 +3,13 @@ package diag
 import (
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/renderorange/knowledge-mcp/internal/update"
 )
 
 func TestWatchdogBlocked(t *testing.T) {
@@ -149,6 +152,8 @@ func TestRunDoctorNoIndexOnStartupIgnored(t *testing.T) {
 
 // captureStdout runs f while capturing os.Stdout (RunDoctor writes the
 // report there).
+// captureStdout runs f while capturing os.Stdout (RunDoctor writes the
+// report there).
 func captureStdout(t *testing.T, f func()) string {
 	t.Helper()
 	old := os.Stdout
@@ -165,4 +170,224 @@ func captureStdout(t *testing.T, f func()) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+// makeGitRepo creates a temp git checkout with a tag, returning its dir.
+func makeGitRepo(t *testing.T, tag string) string {
+	t.Helper()
+	dir := t.TempDir()
+	cmd := exec.Command("git", "init", "-q", dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	// A commit is required before a tag can be created.
+	file := filepath.Join(dir, "f")
+	if err := os.WriteFile(file, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cmd = exec.Command("git", "-C", dir, "add", "f")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+	cmd = exec.Command("git", "-C", dir, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+	if tag != "" {
+		cmd = exec.Command("git", "-C", dir, "tag", tag)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git tag: %v\n%s", err, out)
+		}
+	}
+	return dir
+}
+
+func TestRunDoctorReportsVersionLocalAndSkew(t *testing.T) {
+	dir := makeGitRepo(t, "v1.7.1")
+	exe := filepath.Join(dir, "knowledge-mcp")
+	if err := os.WriteFile(exe, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Point osExecutable at the temp checkout; gitDescribe runs for real
+	// against it.
+	oldExe := osExecutable
+	osExecutable = func() (string, error) { return exe, nil }
+	defer func() { osExecutable = oldExe }()
+
+	proj := t.TempDir()
+	agents := filepath.Join(proj, ".agents")
+	if err := os.MkdirAll(agents, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agents, "conventions.yaml"), []byte(healthyYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := captureStdout(t, func() {
+		code := RunDoctor([]string{"--project", proj, "--timeout", "10s"}, "v1.7.0")
+		// Embedded v1.7.0 vs checkout v1.7.1 must be a warn, not a fail.
+		if code != 0 {
+			t.Errorf("skew must be warn, not fail; code = %d", code)
+		}
+	})
+	if !strings.Contains(out, "version.skew") || !strings.Contains(out, "v1.7.0") || !strings.Contains(out, "v1.7.1") {
+		t.Errorf("missing version.skew finding:\n%s", out)
+	}
+	if !strings.Contains(out, "version.local") {
+		t.Errorf("missing version.local finding:\n%s", out)
+	}
+}
+
+func TestRunDoctorNoSkewWhenVersionsAgree(t *testing.T) {
+	dir := makeGitRepo(t, "v1.7.1")
+	exe := filepath.Join(dir, "knowledge-mcp")
+	if err := os.WriteFile(exe, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	oldExe := osExecutable
+	osExecutable = func() (string, error) { return exe, nil }
+	defer func() { osExecutable = oldExe }()
+
+	proj := t.TempDir()
+	agents := filepath.Join(proj, ".agents")
+	os.MkdirAll(agents, 0755)
+	os.WriteFile(filepath.Join(agents, "conventions.yaml"), []byte(healthyYAML), 0644)
+
+	out := captureStdout(t, func() {
+		if code := RunDoctor([]string{"--project", proj, "--timeout", "10s"}, "v1.7.1"); code != 0 {
+			t.Errorf("RunDoctor() = %d, want 0", code)
+		}
+	})
+	if strings.Contains(out, "version.skew") {
+		t.Errorf("unexpected skew when versions agree:\n%s", out)
+	}
+}
+
+func TestRunDoctorReportsStoreLoadFailure(t *testing.T) {
+	proj := t.TempDir()
+	agents := filepath.Join(proj, ".agents")
+	if err := os.MkdirAll(agents, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// A deliberately corrupt category file must surface as store.load.
+	corrupt := "project: test\nversion: 1\nentries:\n\t- id: conv-001\n      summary: broken\n"
+	if err := os.WriteFile(filepath.Join(agents, "conventions.yaml"), []byte(corrupt), 0644); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() {
+		RunDoctor([]string{"--project", proj, "--timeout", "10s"}, "test")
+	})
+	if !strings.Contains(out, "store.load") || !strings.Contains(out, "conventions.yaml") {
+		t.Errorf("missing store.load finding:\n%s", out)
+	}
+}
+
+// isolateCache points the update cache at a fresh temp dir, so a real cache
+// left by a manual run (or another test) can never satisfy the TTL and skip
+// the stubbed network path.
+func isolateCache(t *testing.T) {
+	t.Helper()
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+}
+
+func TestRunDoctorCheckUpdatesNoRequestWhenOff(t *testing.T) {
+	isolateCache(t)
+	oldFn := checkUpdateFn
+	checkUpdateFn = func(client update.Client, version string) (string, error) {
+		t.Error("checkUpdateFn called without --check-updates")
+		return "", nil
+	}
+	defer func() { checkUpdateFn = oldFn }()
+
+	proj := t.TempDir()
+	agents := filepath.Join(proj, ".agents")
+	os.MkdirAll(agents, 0755)
+	os.WriteFile(filepath.Join(agents, "conventions.yaml"), []byte(healthyYAML), 0644)
+
+	captureStdout(t, func() {
+		if code := RunDoctor([]string{"--project", proj, "--timeout", "10s"}, "v1.7.1"); code != 0 {
+			t.Errorf("RunDoctor() = %d, want 0", code)
+		}
+	})
+}
+
+func TestRunDoctorCheckUpdatesBehind(t *testing.T) {
+	isolateCache(t)
+	oldFn := checkUpdateFn
+	checkUpdateFn = func(client update.Client, version string) (string, error) {
+		return "v1.7.2", nil
+	}
+	defer func() { checkUpdateFn = oldFn }()
+
+	proj := t.TempDir()
+	agents := filepath.Join(proj, ".agents")
+	os.MkdirAll(agents, 0755)
+	os.WriteFile(filepath.Join(agents, "conventions.yaml"), []byte(healthyYAML), 0644)
+
+	out := captureStdout(t, func() {
+		code := RunDoctor([]string{"--project", proj, "--check-updates", "--timeout", "10s"}, "v1.7.1")
+		if code != 0 {
+			t.Errorf("update.available must be warn, not fail; code = %d", code)
+		}
+	})
+	if !strings.Contains(out, "update.available") || !strings.Contains(out, "v1.7.2") {
+		t.Errorf("missing update.available finding:\n%s", out)
+	}
+}
+
+func TestRunDoctorBriefPrintsOneLineWhenBehind(t *testing.T) {
+	isolateCache(t)
+	oldFn := checkUpdateFn
+	checkUpdateFn = func(client update.Client, version string) (string, error) {
+		return "v1.7.2", nil
+	}
+	defer func() { checkUpdateFn = oldFn }()
+
+	out := captureStdout(t, func() {
+		if code := RunDoctor([]string{"--brief", "--check-updates"}, "v1.7.1"); code != 0 {
+			t.Errorf("RunDoctor() = %d, want 0", code)
+		}
+	})
+	if !strings.Contains(out, "v1.7.1->v1.7.2") {
+		t.Errorf("brief mode did not print the one line:\n%q", out)
+	}
+}
+
+func TestRunDoctorBriefPrintsNothingWhenCurrent(t *testing.T) {
+	isolateCache(t)
+	oldFn := checkUpdateFn
+	checkUpdateFn = func(client update.Client, version string) (string, error) {
+		return "v1.7.1", nil
+	}
+	defer func() { checkUpdateFn = oldFn }()
+
+	out := captureStdout(t, func() {
+		if code := RunDoctor([]string{"--brief", "--check-updates"}, "v1.7.1"); code != 0 {
+			t.Errorf("RunDoctor() = %d, want 0", code)
+		}
+	})
+	if strings.TrimSpace(out) != "" {
+		t.Errorf("brief mode printed when current:\n%q", out)
+	}
+}
+
+func TestRunDoctorBriefSilentForDevVersion(t *testing.T) {
+	// A plain `go build` embeds "dev" (main.go default). An unknown version
+	// is not evidence of being behind, so --brief must stay silent.
+	isolateCache(t)
+	oldFn := checkUpdateFn
+	checkUpdateFn = func(client update.Client, version string) (string, error) {
+		return "v1.7.2", nil
+	}
+	defer func() { checkUpdateFn = oldFn }()
+
+	out := captureStdout(t, func() {
+		if code := RunDoctor([]string{"--brief", "--check-updates"}, "dev"); code != 0 {
+			t.Errorf("RunDoctor() = %d, want 0", code)
+		}
+	})
+	if strings.TrimSpace(out) != "" {
+		t.Errorf("brief mode printed for an unknown version:\n%q", out)
+	}
 }

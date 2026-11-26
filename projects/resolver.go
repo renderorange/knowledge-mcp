@@ -346,6 +346,17 @@ func (r *Resolver) KnownNames() []string {
 	return names
 }
 
+// KnownAddresses returns the set of addressing names in the startup snapshot.
+// A dynamically resolved project is not in this set, so callers can tell
+// whether the shared index was built for an address without a full rebuild.
+func (r *Resolver) KnownAddresses() map[string]bool {
+	known := make(map[string]bool, len(r.refs))
+	for _, ref := range r.refs {
+		known[ref.Address] = true
+	}
+	return known
+}
+
 // GlobalRef returns the global knowledge ref, or false if none is configured.
 func (r *Resolver) GlobalRef() (Ref, bool) {
 	if r.global == "" {
