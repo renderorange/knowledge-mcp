@@ -23,6 +23,14 @@ func ReindexHandler(idx *search.Index) func(context.Context, mcp.CallToolRequest
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("reindexed but could not count documents: %v", err)), nil
 		}
+		// The health check is the one place a broken file must never be
+		// invisible: it is what a human or agent runs when the store is
+		// suspected, and a document count alone reads as "all good".
+		if failures := idx.LoadFailures(); len(failures) > 0 {
+			return mcp.NewToolResultError(fmt.Sprintf(
+				"reindexed %d documents, but %d knowledge file(s) failed to load; the store is incomplete:\n%s",
+				count, len(failures), failureDetails(failures))), nil
+		}
 		return mcp.NewToolResultText(fmt.Sprintf("reindexed %d documents from the knowledge store", count)), nil
 	}
 }

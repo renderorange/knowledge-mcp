@@ -31,37 +31,52 @@ func ListHandler(res *projects.Resolver, idx *search.Index) func(context.Context
 		}
 
 		output := ""
+		var failures []search.LoadFailure
 
 		// For non-global lookups, prepend the shared global store with an
 		// explicit "(global)" label so merged entries are not mistaken for
 		// the project's own.
 		if ref.Address != projects.GlobalAddress {
 			if globalRef, ok := res.GlobalRef(); ok {
-				output += listProjectEntries(res.AgentsDir(globalRef), projects.GlobalAddress, filterCategory, " (global)")
+				globalOut, globalFailures := listProjectEntries(res.AgentsDir(globalRef), projects.GlobalAddress, filterCategory, " (global)")
+				output += globalOut
+				failures = append(failures, globalFailures...)
 			}
 		}
 
 		if ref.Kind == projects.KindOrg {
 			output += listOrgEntries(idx, ref.Address, filterCategory)
 			if strings.TrimSpace(output) == "" {
-				return mcp.NewToolResultText("no knowledge entries found"), nil
+				return emptyOrError(failures), nil
 			}
-			return mcp.NewToolResultText(output), nil
+			return mcp.NewToolResultText(withWarnings(output, failures)), nil
 		}
 
-		local := listProjectEntries(res.AgentsDir(ref), project, filterCategory, "")
+		local, localFailures := listProjectEntries(res.AgentsDir(ref), project, filterCategory, "")
+		failures = append(failures, localFailures...)
 
 		if local == "" {
 			if strings.TrimSpace(output) == "" {
-				return mcp.NewToolResultText("no knowledge entries found"), nil
+				return emptyOrError(failures), nil
 			}
 			output += "no project-specific knowledge entries found\n"
 		} else {
 			output += local
 		}
 
-		return mcp.NewToolResultText(output), nil
+		return mcp.NewToolResultText(withWarnings(output, failures)), nil
 	}
+}
+
+// emptyOrError reports an empty listing. When a file failed to load, the empty
+// list is not evidence that nothing exists, so it is reported as a failure.
+func emptyOrError(failures []search.LoadFailure) *mcp.CallToolResult {
+	if len(failures) > 0 {
+		return mcp.NewToolResultError(fmt.Sprintf(
+			"cannot confirm an empty store: %d knowledge file(s) failed to load:\n%s",
+			len(failures), failureDetails(failures)))
+	}
+	return mcp.NewToolResultText("no knowledge entries found")
 }
 
 // listOrgEntries lists an org root's knowledge sections, grouped by source
@@ -107,9 +122,10 @@ func listOrgEntries(idx *search.Index, orgAddress, filterCategory string) string
 	return output
 }
 
-func listProjectEntries(agentsDir, projectName, filterCategory, headerSuffix string) string {
+func listProjectEntries(agentsDir, projectName, filterCategory, headerSuffix string) (string, []search.LoadFailure) {
 
 	var constraints []knowledge.Entry
+	var failures []search.LoadFailure
 	type catEntries struct {
 		category string
 		entries  []knowledge.Entry
@@ -129,6 +145,13 @@ func listProjectEntries(agentsDir, projectName, filterCategory, headerSuffix str
 		mu.RUnlock()
 
 		if loadErr != nil {
+			// A category that cannot be parsed is a missing rule, not an
+			// absent one. Record it so the response can say the list is short.
+			failures = append(failures, search.LoadFailure{
+				Project: projectName,
+				Path:    catPath,
+				Err:     loadErr.Error(),
+			})
 			continue
 		}
 
@@ -169,5 +192,5 @@ func listProjectEntries(agentsDir, projectName, filterCategory, headerSuffix str
 		output += "\n"
 	}
 
-	return output
+	return output, failures
 }

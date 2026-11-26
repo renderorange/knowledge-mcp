@@ -39,19 +39,29 @@ type SearchResult struct {
 	Project  string  `json:"project"`
 }
 
+// LoadFailure records a store file the index could not read or parse. It is
+// surfaced in tool responses so that a broken store is never reported as an
+// empty one.
+type LoadFailure struct {
+	Project string `json:"project"`
+	Path    string `json:"path"`
+	Err     string `json:"error"`
+}
+
 // Index wraps an in-memory bleve index for knowledge search. The index is
 // built from the store files at startup and rebuilt when those files change,
 // so out-of-band edits are searchable without a process restart. It lives
 // only as long as the process; there is no disk state and therefore no lock
 // between instances.
 type Index struct {
-	mu          sync.RWMutex // guards index, fingerprint, and resolver
-	refreshMu   sync.Mutex   // serializes rebuilds
-	index       bleve.Index
-	ready       chan struct{} // closed when the initial indexing completes
-	readyOnce   sync.Once     // guards close of ready to prevent double-close panic
-	resolver    *projects.Resolver
-	fingerprint string // store-file stamp the current index was built from
+	mu           sync.RWMutex // guards index, fingerprint, resolver, and loadFailures
+	refreshMu    sync.Mutex   // serializes rebuilds
+	index        bleve.Index
+	ready        chan struct{} // closed when the initial indexing completes
+	readyOnce    sync.Once     // guards close of ready to prevent double-close panic
+	resolver     *projects.Resolver
+	fingerprint  string        // store-file stamp the current index was built from
+	loadFailures []LoadFailure // files that failed to load during the last build
 }
 
 // NewIndex creates a new in-memory bleve index.
@@ -201,6 +211,21 @@ func (i *Index) DocCount() (uint64, error) {
 	return i.index.DocCount()
 }
 
+// LoadFailures returns a copy of the store files that failed to load during
+// the last index build. Empty means every file parsed. Callers should surface
+// a non-empty result next to any query answer it affects: absence of a rule in
+// a partially loaded store is not evidence that the rule does not exist.
+func (i *Index) LoadFailures() []LoadFailure {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	if len(i.loadFailures) == 0 {
+		return nil
+	}
+	out := make([]LoadFailure, len(i.loadFailures))
+	copy(out, i.loadFailures)
+	return out
+}
+
 // Refresh rebuilds the index when the store files changed since the last
 // build. It reports whether a rebuild happened. The unchanged case takes no
 // rebuild lock, so concurrent queries are not serialized by the check.
@@ -256,7 +281,7 @@ func (i *Index) Rebuild() error {
 // rebuildLocked builds a fresh index and swaps it in. Callers must hold
 // refreshMu; the old index is closed after the swap.
 func (i *Index) rebuildLocked(res *projects.Resolver, fp string) error {
-	fresh, err := buildIndex(res)
+	fresh, failures, err := buildIndex(res)
 	if err != nil {
 		return err
 	}
@@ -265,6 +290,7 @@ func (i *Index) rebuildLocked(res *projects.Resolver, fp string) error {
 	old := i.index
 	i.index = fresh
 	i.fingerprint = fp
+	i.loadFailures = failures
 	i.mu.Unlock()
 
 	if old != nil {
@@ -292,22 +318,25 @@ func (i *Index) IndexAll(res *projects.Resolver) {
 	i.CloseReady()
 }
 
-// buildIndex creates a fresh in-memory index from the resolver's stores.
-func buildIndex(res *projects.Resolver) (bleve.Index, error) {
+// buildIndex creates a fresh in-memory index from the resolver's stores. It
+// also returns every source file it could not read or parse, because a store
+// that fails to load must not look like a store with nothing in it.
+func buildIndex(res *projects.Resolver) (bleve.Index, []LoadFailure, error) {
 	idx, err := bleve.NewMemOnly(indexMapping())
 	if err != nil {
-		return nil, fmt.Errorf("create in-memory index: %w", err)
+		return nil, nil, fmt.Errorf("create in-memory index: %w", err)
 	}
 
+	var failures []LoadFailure
 	for _, ref := range res.Snapshot() {
 		switch ref.Kind {
 		case projects.KindOrg:
-			indexOrgKnowledge(idx, res.OrgKnowledgeDir(ref), ref.Name)
+			failures = append(failures, indexOrgKnowledge(idx, res.OrgKnowledgeDir(ref), ref.Name)...)
 		default:
-			indexProjectKnowledge(idx, res.AgentsDir(ref), ref.Address)
+			failures = append(failures, indexProjectKnowledge(idx, res.AgentsDir(ref), ref.Address)...)
 		}
 	}
-	return idx, nil
+	return idx, failures, nil
 }
 
 // storeFingerprint hashes the identity of every knowledge source file the
@@ -346,14 +375,23 @@ func hashFileStamp(h hash.Hash, path string) {
 	fmt.Fprintf(h, "%s:%d:%d\n", path, info.Size(), info.ModTime().UnixNano())
 }
 
-// indexProjectKnowledge indexes all knowledge files under an agents dir.
-func indexProjectKnowledge(idx bleve.Index, agentsDir, projectName string) {
+// indexProjectKnowledge indexes all knowledge files under an agents dir. Any
+// file that cannot be loaded is returned as a LoadFailure rather than only
+// logged: an agent that gets "no such entry" cannot tell whether the rule is
+// absent or the file that holds it is unreadable.
+func indexProjectKnowledge(idx bleve.Index, agentsDir, projectName string) []LoadFailure {
+	var failures []LoadFailure
 	for _, cat := range knowledge.ValidCategories() {
 		catPath := knowledge.CategoryFilePath(agentsDir, cat)
 		kf, err := knowledge.Load(catPath)
 		if err != nil {
 			if !os.IsNotExist(err) {
 				log.Printf("warning: failed to load knowledge file %s: %v", catPath, err)
+				failures = append(failures, LoadFailure{
+					Project: projectName,
+					Path:    catPath,
+					Err:     err.Error(),
+				})
 			}
 			continue
 		}
@@ -370,21 +408,35 @@ func indexProjectKnowledge(idx bleve.Index, agentsDir, projectName string) {
 			}
 		}
 	}
+	return failures
 }
 
 // indexOrgKnowledge indexes every markdown document in an org's knowledge
 // dir as sections.
-func indexOrgKnowledge(idx bleve.Index, knowledgeDir, orgName string) {
+func indexOrgKnowledge(idx bleve.Index, knowledgeDir, orgName string) []LoadFailure {
+	var failures []LoadFailure
 	files, err := knowledge.OrgKnowledgeFiles(knowledgeDir)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Printf("warning: failed to list org knowledge %s: %v", knowledgeDir, err)
+			failures = append(failures, LoadFailure{
+				Project: orgName,
+				Path:    knowledgeDir,
+				Err:     err.Error(),
+			})
 		}
-		return
+		return failures
 	}
 	for _, catFile := range files {
-		data, readErr := os.ReadFile(filepath.Join(knowledgeDir, catFile))
+		orgFile := filepath.Join(knowledgeDir, catFile)
+		data, readErr := os.ReadFile(orgFile)
 		if readErr != nil {
+			log.Printf("warning: failed to read org knowledge file %s: %v", orgFile, readErr)
+			failures = append(failures, LoadFailure{
+				Project: orgName,
+				Path:    orgFile,
+				Err:     readErr.Error(),
+			})
 			continue
 		}
 		for _, sec := range knowledge.SplitSections(string(data)) {
@@ -401,6 +453,7 @@ func indexOrgKnowledge(idx bleve.Index, knowledgeDir, orgName string) {
 			}
 		}
 	}
+	return failures
 }
 
 // indexMapping builds an explicit mapping: text analysis for content fields,
